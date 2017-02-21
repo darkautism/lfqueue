@@ -1,5 +1,4 @@
 # lfqueue
-Minimize lock-free queue, but it could cause memory leak.
-DO NOT USE ON PRODUCTION!
+Minimize lock-free queue
 
-Must call lfq_clean to clean memory!!
+Support multiple comsumer and multiple producer at sametime.

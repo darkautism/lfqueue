@@ -8,16 +8,13 @@
 
 struct lfq_node{
 	void * data;
-	volatile int cn_donotfree;
 	struct lfq_node * next;
 };
 
 struct lfq_ctx{
 	struct lfq_node * head;
-	struct lfq_node * __free_head;
 	struct lfq_node * tail;
 	int count;
-	int cn_nonfree;
 };
 int lfq_init(struct lfq_ctx *ctx);
 int lfq_clean(struct lfq_ctx *ctx);

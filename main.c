@@ -16,17 +16,21 @@ volatile int cn_producer = 0;
 
 struct user_data{
 	long data;
-	int alive;
 };
+
 void * addq( void * data ) {
 	struct lfq_ctx * ctx = data;
-	struct user_data * p;
+	struct user_data * p=(struct user_data *)0xff;
 	long i;
-	for ( i = 0 ; i < 50000 ; i++) {
+	int ret = 0;
+	for ( i = 0 ; i < 500000 ; i++) {
 		p = malloc(sizeof(struct user_data));
 		p->data=i;
-		p->alive=1;
-		lfq_enqueue(ctx,p);
+		if ( ( ret = lfq_enqueue(ctx,p) ) != 0 ) {
+			printf("lfq_enqueue failed, reason:%s", strerror(-ret));
+			__sync_sub_and_fetch(&cn_producer, 1);
+			return 0;
+		}
 		__sync_add_and_fetch(&cn_added, 1);
 	}
 	__sync_sub_and_fetch(&cn_producer, 1);
@@ -39,13 +43,14 @@ void * delq( void * data ) {
 	while(ctx->count || cn_producer) {
 		p = lfq_dequeue(ctx);
 		if (p) {
-			p->alive=0;
 			free(p);
 			__sync_add_and_fetch(&cn_deled, 1);			
 		}
 		sleep(0);
 	}
-	printf("Consumer thread [%lu] exited\n",pthread_self());
+
+	p = lfq_dequeue(ctx);
+	printf("Consumer thread [%lu] exited %d\n",pthread_self(),cn_producer);
 }
 
 int main() {
