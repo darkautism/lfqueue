@@ -2,7 +2,6 @@
 #include <stdlib.h> 
 #include <string.h>
 #include <errno.h>
-#include <stdio.h>
 
 int lfq_init(struct lfq_ctx *ctx) {
 	struct lfq_node * tmpnode = malloc(sizeof(struct lfq_node));

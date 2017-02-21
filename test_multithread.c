@@ -7,12 +7,16 @@
 #include <unistd.h>
 #include "lfq.h"
 
+#ifndef MAX_PRODUCER
+#define MAX_PRODUCER 100
+#endif
+#ifndef MAX_CONSUMER
+#define MAX_CONSUMER 10
+#endif
+
 volatile uint64_t cn_added = 0;
 volatile uint64_t cn_deled = 0;
 volatile int cn_producer = 0;
-
-#define MAX_PRODUCER 100
-#define MAX_CONSUMER 10
 
 struct user_data{
 	long data;
