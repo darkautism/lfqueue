@@ -1,6 +1,8 @@
 #ifndef __LFQ_H__
 #define __LFQ_H__
 
+// this is test
+
 struct lfq_node{
 	void * data;
 	struct lfq_node * next;
