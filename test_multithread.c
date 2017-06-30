@@ -27,7 +27,7 @@ void * addq( void * data ) {
 	struct user_data * p=(struct user_data *)0xff;
 	long i;
 	int ret = 0;
-	for ( i = 0 ; i < 500000 ; i++) {
+	for ( i = 0 ; i < 100 ; i++) {
 		p = malloc(sizeof(struct user_data));
 		p->data=i;
 		if ( ( ret = lfq_enqueue(ctx,p) ) != 0 ) {
@@ -53,8 +53,8 @@ void * delq( void * data ) {
 		sleep(0);
 	}
 
-	p = lfq_dequeue(ctx);
-	printf("Consumer thread [%lu] exited %d\n",pthread_self(),cn_producer);
+	//p = lfq_dequeue(ctx);
+	printf("Consumer thread [%lu] exited %d %d\n",pthread_self(),cn_producer,ctx->count);
 }
 
 int main() {

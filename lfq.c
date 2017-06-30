@@ -2,14 +2,36 @@
 #include <stdlib.h> 
 #include <string.h>
 #include <errno.h>
+#include <stdio.h>
 
 int lfq_init(struct lfq_ctx *ctx) {
-	struct lfq_node * tmpnode = malloc(sizeof(struct lfq_node));
-	if (!tmpnode) 
-		return -errno;
-	
+	int i;
+
+	struct lfq_node * tmp_node=NULL;
+	struct lfq_node * prev_node=NULL;
+
 	memset(ctx,0,sizeof(struct lfq_ctx));
-	ctx->head=ctx->tail=tmpnode;
+	
+	for(i=0;i< RING_BUF_SIZE;i++)
+	{
+		tmp_node = malloc(sizeof(struct lfq_node));
+		
+		if (!tmp_node) 
+			return -errno;
+
+		memset(tmp_node,0,sizeof(struct lfq_node));
+
+		if(i==0)
+			ctx->head=tmp_node;
+		
+		if(prev_node)
+			prev_node->next=tmp_node;
+
+		prev_node=tmp_node;	
+	}
+
+	prev_node->next=ctx->tail=ctx->head;
+
 	return 0;
 }
 
@@ -21,37 +43,41 @@ int lfq_clean(struct lfq_ctx *ctx){
 
 int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	struct lfq_node * p;
-	struct lfq_node * tmpnode = malloc(sizeof(struct lfq_node));
-	if (!tmpnode)
-		return -errno;
-	
-	memset(tmpnode,0,sizeof(struct lfq_node));
-	tmpnode->data=data;
 	do {
-		p = ctx->tail;
-		if ( __sync_bool_compare_and_swap(&ctx->tail,p,tmpnode)) {
-			p->next=tmpnode;
+
+		do{
+			p = ctx->tail;
+		}while (p->next==ctx->head);
+
+		if ( __sync_bool_compare_and_swap(&ctx->tail,p,p->next)) 
+		{
+			p->data=data;
 			break;	
 		}
 	} while(1);
+	//printf("e\n");
 	__sync_add_and_fetch( &ctx->count, 1);
 	return 0;
 }
 
 void * lfq_dequeue(struct lfq_ctx *ctx ) {
 	void * ret=0;
+	void * data;
 	struct lfq_node * p;
 	do {
 		p = ctx->head;
-	} while(p==0 || !__sync_bool_compare_and_swap(&ctx->head,p,0));
-	
-	if( p->next==0)	{
-		ctx->head=p;
-		return 0;
-	}
-	ret=p->next->data;
-	ctx->head=p->next;
+		ret=p->data
+		if( p==ctx->tail || ret ==NULL)
+			return NULL;
+
+		if (__sync_bool_compare_and_swap(&ctx->head,p,p->next))
+		{
+			p->data=NULL;
+			break;
+		}
+	}while(1);
+	//printf("d\n");
 	__sync_sub_and_fetch( &ctx->count, 1);
-	free(p);
+
 	return ret;
 }

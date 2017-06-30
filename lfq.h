@@ -3,6 +3,9 @@
 
 // this is test
 
+#define RING_BUF_SIZE  4096
+
+
 struct lfq_node{
 	void * data;
 	struct lfq_node * next;
