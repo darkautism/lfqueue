@@ -27,7 +27,7 @@ void * addq( void * data ) {
 	struct user_data * p=(struct user_data *)0xff;
 	long i;
 	int ret = 0;
-	for ( i = 0 ; i < 100 ; i++) {
+	for ( i = 0 ; i < 100000 ; i++) {
 		p = malloc(sizeof(struct user_data));
 		p->data=i;
 		if ( ( ret = lfq_enqueue(ctx,p) ) != 0 ) {

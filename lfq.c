@@ -47,7 +47,8 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 
 		do{
 			p = ctx->tail;
-		}while (p->next==ctx->head);
+			//p->data=NULL;
+		}while (p->next==ctx->head || p->data!=NULL);
 
 		if ( __sync_bool_compare_and_swap(&ctx->tail,p,p->next)) 
 		{
@@ -66,7 +67,7 @@ void * lfq_dequeue(struct lfq_ctx *ctx ) {
 	struct lfq_node * p;
 	do {
 		p = ctx->head;
-		ret=p->data
+		ret=p->data;
 		if( p==ctx->tail || ret ==NULL)
 			return NULL;
 
