@@ -35,7 +35,19 @@ int main() {
 	return 0;
 }
 ```
-	
+
+## Issues
+
+### ENOMEM
+This lfqueue do not have size limit, so count your struct yourself.
+
+### Can i iterate lfqueue inner struct?
+No, iterate inner struct is not threadsafe.
+
+If you do not get segmentation fault because you are iterate lfqueue in single thread.
+
+We should always iterate lfqueue by `lfq_enqueue` and `lfq_dequeue` method.
+
 ## License
 
 WTFPL
