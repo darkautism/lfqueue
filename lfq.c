@@ -4,7 +4,7 @@
 #include <errno.h>
 
 int lfq_init(struct lfq_ctx *ctx) {
-	struct lfq_node * tmpnode = malloc(sizeof(struct lfq_node));
+	struct lfq_node * tmpnode = calloc(1,sizeof(struct lfq_node));
 	if (!tmpnode) 
 		return -errno;
 	
@@ -14,18 +14,25 @@ int lfq_init(struct lfq_ctx *ctx) {
 }
 
 int lfq_clean(struct lfq_ctx *ctx){
-	if ( !ctx->count )
-		free(ctx->head);
-	return ctx->count;
+	if ( ctx->tail && ctx->head ) { // if have data in queue
+		struct lfq_node * walker = ctx->head, *tmp;
+		while ( walker != ctx->tail ) { // while still have node
+			tmp = walker->next;
+			free(walker);
+			walker=tmp;
+		}
+		free(ctx->head); // free the empty node
+		memset(ctx,0,sizeof(struct lfq_ctx));
+	}
+	return 0;
 }
 
 int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	struct lfq_node * p;
-	struct lfq_node * tmpnode = malloc(sizeof(struct lfq_node));
+	struct lfq_node * tmpnode = calloc(1,sizeof(struct lfq_node));
 	if (!tmpnode)
 		return -errno;
 	
-	memset(tmpnode,0,sizeof(struct lfq_node));
 	tmpnode->data=data;
 	do {
 		p = ctx->tail;
