@@ -39,14 +39,59 @@ int main() {
 ## Issues
 
 ### ENOMEM
+
 This lfqueue do not have size limit, so count your struct yourself.
 
 ### Can i iterate lfqueue inner struct?
+
 No, iterate inner struct is not threadsafe.
 
 If you do not get segmentation fault because you are iterate lfqueue in single thread.
 
 We should always iterate lfqueue by `lfq_enqueue` and `lfq_dequeue` method.
+
+### CPU time slice waste? Other thread blocking and waiting for swap?
+
+**Enqueue**
+
+No, CAS operator not lock. Loser not block and wait winner.
+
+If a thread race win a CAS, other thread will get false and try to retrive next pointer. Because winner already swap tail, so other losers can do next race.
+
+**Example:**
+```
+Queue A -> B -> C -> D -> E
+4 thread race A
+1 win Get A, 2 lose, 1 do not have CPU time slice
+1 win pop A, 2 losers race B, 1 race A
+1 win go out queue, 1 win B, 1 lose B, 1 race A failed because tail not A now
+```
+
+So lock-free queue have better performance then lock queue.
+
+**Dequeue**
+
+This lfq dequeue like mini spin lock, so dequeue is thread safe, but it's not suggestion dequeue with multiple thread.
+
+There has many papers to resolve this problem:
+
+- Lock-FreeReference Counting
+- ABA-Prevention Tags
+- Hazard Pointers
+
+### CPU cache miss?
+
+This issue cannot been resolved. CAS operator always cause this problem.
+
+We can resolved it if cpu will not cache miss after CAS.
+
+### ABA problem?
+
+No, ABA problem will segement fault. But we won't.
+
+### Double width compare and swap (DWACS)
+
+Branch [experimental-DCAS](https://github.com/darkautism/lfqueue/tree/experimental-DCAS), but it's no help.
 
 ## License
 
