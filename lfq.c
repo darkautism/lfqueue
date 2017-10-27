@@ -5,28 +5,31 @@
 
 #include <stdio.h>
 
-char dwcas(size_t data[], struct lfq_node * current_head, struct lfq_node * next, struct lfq_node * new_head, struct lfq_node * new_next )
+
+char dwcas( uint128_t * u, void * c1, void * c2, void * n1, void * n2 )
 {
+	// printf("%p %p %p %p %p %p\n", m1,m2,c1,c2,n1,n2);
 	unsigned char ret;
 	__asm__ __volatile__ (
 		"lock cmpxchg16b %1\n\t"
 		"setz %0\n"
 		: "=q" ( ret )
-		 ,"+m" ( data[0] ),"+m" ( data[1] )
-		: "a" ( current_head ), "d" ( next )
-		 ,"b" ( new_head ), "c" ( new_next )
+		 ,"+m" ( *u )
+		: "a" ( c1 ), "d" ( c2 )
+		 ,"b" ( n1 ), "c" ( n2 )
 		: "cc"
 		);
 	return ret;
 }
 
 int lfq_init(struct lfq_ctx *ctx) {
-	struct lfq_node * tmpnode = calloc(1,sizeof(struct lfq_node));
-	if (!tmpnode) 
+	struct lfq_node * firstnode = calloc(1,sizeof(struct lfq_node));
+	if (!firstnode) 
 		return -errno;
 	
 	memset(ctx,0,sizeof(struct lfq_ctx));
-	ctx->tail = ctx->head.c = tmpnode;
+	ctx->head.c = ctx->tail = firstnode; 
+	ctx->head.n = 0;
 	return 0;
 }
 
@@ -58,50 +61,44 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 			break;	
 		}
 	} while(1);
-	//printf("z\n");
-	if (p == ctx->head.c) {
-		if (ctx->head.n != 0)
-			printf("BUG!\n");
-		
-		if (!dwcas( ctx->head.b16, p, ctx->head.n, p, tmpnode))
-			printf("BUG!\n");
-		printf("EMP NODE!\n");
-	}
 	
 	__sync_add_and_fetch( &ctx->count, 1);
+	
 	return 0;
 }
 
 void * lfq_dequeue(struct lfq_ctx *ctx ) {
 	void * ret=0;
 	struct lfq_node * c, *n;
+	
 	do {
 		c=ctx->head.c;
-		n=c->next;
-		if (!n)
-			return 0; // there has no data
-	} while ( ! dwcas( ctx->head.b16, c, n, n, n->next) );
+		n=ctx->head.n;
+		if (!c)
+			continue;
+			
+		if ( dwcas( &ctx->head.u, c, n, 0, n) ) {
+			if (!n) {
+				if (c->next) {
+					n=c->next;
+					ret=n->data;
+					dwcas( &ctx->head.u, 0, 0, n, n->next);
+				} else { // emp node
+					dwcas( &ctx->head.u, 0, n, c, n);
+					return 0;
+				}
+			} else {
+				ret=n->data;
+				dwcas( &ctx->head.u, 0, n, n, n->next);
+			}
+			break;
+		}
+		
+	} while(1);
 	
-	// printf("%d!\n", ctx->count);
-	ret=n->data;
 	__sync_sub_and_fetch( &ctx->count, 1);
+free:
 	free(c);
-	/*
-	struct lfq_node * p;
-	do {
-		p = ctx->head;
-	} while(p==0 || !__sync_bool_compare_and_swap(&ctx->head,p,0));
-	
-	if( p->next==0)	{
-		ctx->head=p;
-		return 0;
-	}
-	ret=p->next->data;
-	ctx->head=p->next;
-	__sync_sub_and_fetch( &ctx->count, 1);
-
-	free(p);
-	*/
 	return ret;
 }
 

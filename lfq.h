@@ -7,19 +7,21 @@ struct lfq_node{
 	struct lfq_node * next;
 };
 
-struct lfq_ctx{
+#ifndef uint128_t
+#define uint128_t unsigned __int128
+#endif
 
+struct lfq_ctx{
 	union {
-		size_t b16[2];
+		uint128_t u;
 	    struct {
 			struct lfq_node* c;
 			struct lfq_node* n;
-		} __attribute__ (( __aligned__( 16 ) )) ;
-	} head;
-
-//	struct lfq_node * head;
+		};
+	} __attribute__ (( __aligned__( 16 ) )) head;
 
 	struct lfq_node * tail;
+	
 	int count;
 };
 
