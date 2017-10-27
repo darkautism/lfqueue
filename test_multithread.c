@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include "lfq.h"
 
+#include <signal.h>
+
 #ifndef MAX_PRODUCER
 #define MAX_PRODUCER 100
 #endif
@@ -57,7 +59,21 @@ void * delq( void * data ) {
 	printf("Consumer thread [%lu] exited %d\n",pthread_self(),cn_producer);
 }
 
-int main() {
+void functionA (int dummy) {
+	static int is_called = 0;
+	printf("Total push %"PRId64" elements, pop %"PRId64" elements.\n", cn_added, cn_deled);
+	
+	if (is_called == 3) {
+		exit(0);
+	}
+	is_called++;
+	
+}
+
+int main(void) {
+
+   signal(SIGINT, functionA);
+	
 	struct lfq_ctx ctx;
 	int i=0;
 	lfq_init(&ctx);
