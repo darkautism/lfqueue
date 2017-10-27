@@ -60,11 +60,10 @@ If a thread race win a CAS, other thread will get false and try to retrive next 
 
 **Example:**
 ```
-Queue A -> B -> C -> D -> E
-4 thread race A
-1 win Get A, 2 lose, 1 do not have CPU time slice
-1 win pop A, 2 losers race B, 1 race A
-1 win go out queue, 1 win B, 1 lose B, 1 race A failed because tail not A now
+4 thread race push
+1 win Push A, 2 lose, 1 do not have CPU time slice
+1 win go out queue, 2 losers race A as tail, 1 race initnode as tail
+1 win go out queue, 1 win push B, 1 lose, 1 race A failed because tail not initnode now
 ```
 
 So lock-free queue have better performance then lock queue.
@@ -89,9 +88,9 @@ We can resolved it if cpu will not cache miss after CAS.
 
 No, ABA problem will segement fault. But we won't.
 
-### Double width compare and swap (DWACS)
+## Double width compare and swap (DWACS)
 
-Branch [experimental-DCAS](https://github.com/darkautism/lfqueue/tree/experimental-DCAS), but it's no help.
+Branch [experimental-DCAS](https://github.com/darkautism/lfqueue/tree/experimental-DCAS), still
 
 ## License
 
