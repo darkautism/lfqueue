@@ -4,12 +4,22 @@
 struct lfq_node{
 	void * data;
 	struct lfq_node * next;
+	int can_free;
+	struct lfq_node * free_next;
 };
+
+#define MAXHPSIZE 256
+#define MAXFREE 10
 
 struct lfq_ctx{
 	struct lfq_node * head;
 	struct lfq_node * tail;
 	int count;
+	struct lfq_node * HP[MAXHPSIZE];
+	int tid_map[MAXHPSIZE];
+	int is_freeing;
+	struct lfq_node * fph; // free pool head
+	struct lfq_node * fpt; // free pool tail
 };
 
 int lfq_init(struct lfq_ctx *ctx);

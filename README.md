@@ -1,6 +1,6 @@
 # lfqueue [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=master)](https://travis-ci.org/darkautism/lfqueue)
 
-Minimize lock-free queue, it's easy to use and easy to read. It's only 50 line code so it is easy to understand, best code for education ever!
+Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line code so it is easy to understand, best code for education ever!
 
 Support multiple comsumer and multiple producer at sametime.
 
