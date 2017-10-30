@@ -74,9 +74,12 @@ This lfq dequeue like mini spin lock, so dequeue is thread safe, but it's not su
 
 There has many papers to resolve this problem:
 
-- Lock-FreeReference Counting
+- Lock-Free Reference Counting
 - ABA-Prevention Tags
-- Hazard Pointers
+- [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **On developing**
+- DACS (not DWACS)
+- [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **stable**
+
 
 ### CPU cache miss?
 
@@ -90,7 +93,7 @@ No, ABA problem will segement fault. But we won't.
 
 ## Double width compare and swap (DWACS)
 
-Branch [experimental-DCAS](https://github.com/darkautism/lfqueue/tree/experimental-DCAS), still
+On developing [experimental-DCAS](https://github.com/darkautism/lfqueue/tree/experimental-DCAS). I think this operator cannot impilement really lock-free queue.
 
 ## License
 
