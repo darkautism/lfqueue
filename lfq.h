@@ -4,7 +4,7 @@
 struct lfq_node{
 	void * data;
 	struct lfq_node * next;
-	int can_free;
+	volatile int can_free;
 	struct lfq_node * free_next;
 };
 
@@ -12,8 +12,8 @@ struct lfq_node{
 #define MAXFREE 10
 
 struct lfq_ctx{
-	struct lfq_node * head;
-	struct lfq_node * tail;
+	volatile struct lfq_node * head;
+	volatile struct lfq_node * tail;
 	int count;
 	struct lfq_node * HP[MAXHPSIZE];
 	int tid_map[MAXHPSIZE];
