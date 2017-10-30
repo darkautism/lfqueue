@@ -12,7 +12,7 @@ Just copy past everywhere and use it. If you copy these code into your project, 
 
 - Compile on windows ( Cygwin, MinGW ).
 - Try to fix -O0 flag problem.
-- Compile on MACOS ( I do not have MAC, need somebody help!! )
+- Compile on MACOS ( **I do not have MAC, need somebody help!!** )
 
 ## Example
 
@@ -83,9 +83,9 @@ There has many papers to resolve this problem:
 
 - Lock-Free Reference Counting
 - ABA-Prevention Tags
-- [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **On developing**
+- [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Stable**
 - DACS (not DWACS)
-- [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **stable**
+- [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **Stable**
 
 
 ### CPU cache miss?
