@@ -1,4 +1,4 @@
-# lfqueue [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=master)](https://travis-ci.org/darkautism/lfqueue)
+# lfqueue [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)
 
 Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line code so it is easy to understand, best code for education ever!
 
@@ -7,6 +7,12 @@ Support multiple comsumer and multiple producer at sametime.
 ## How to use
 
 Just copy past everywhere and use it. If you copy these code into your project, you must use -O0 flag to compile.
+
+## Next Milestone
+
+- Compile on windows ( Cygwin, MinGW ).
+- Try to fix -O0 flag problem.
+- Compile on MACOS ( I do not have MAC, need somebody help!! )
 
 ## Example
 
@@ -70,7 +76,8 @@ So lock-free queue have better performance then lock queue.
 
 **Dequeue**
 
-This lfq dequeue like mini spin lock, so dequeue is thread safe, but it's not suggestion dequeue with multiple thread.
+We choice Hazard Pointers to reaolve ABA problems. So dequeue is fast as enqueue.
+
 
 There has many papers to resolve this problem:
 
