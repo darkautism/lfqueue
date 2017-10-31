@@ -2,6 +2,7 @@
 #include "lfq.h"
 #include <errno.h>
 
+#include <stdio.h>
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	for ( int i = 0 ; i < MAXHPSIZE ; i++ )
 		if (ctx->HP[i] == lfn)
@@ -21,13 +22,14 @@ void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 	if (!CAS(&ctx->is_freeing, 0, 1))
 		return; // this pool free is not support multithreading.
-	struct lfq_node *p;
+	struct lfq_node * p;
 	
 	for ( int i = 0 ; i < MAXFREE ; i++ ) {
 		p = ctx->fph;
 		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, p) )
 			goto exit;
 		ctx->fph = p->free_next;
+		mb(); 
 		free(p);
 	}
 exit:
@@ -61,13 +63,12 @@ int lfq_init(struct lfq_ctx *ctx) {
 	ctx->fph=ctx->fpt=free_pool_node;
 	return 0;
 }
-
 int lfq_clean(struct lfq_ctx *ctx){
 	if ( ctx->tail && ctx->head ) { // if have data in queue
 		struct lfq_node *tmp;
-		while ( ctx->head ) { // while still have node
-			tmp = ctx->head->next;
-			safe_free(ctx, ctx->head);
+		while ( (struct lfq_node *) ctx->head ) { // while still have node
+			tmp = (struct lfq_node *) ctx->head->next;
+			safe_free(ctx, (struct lfq_node *)ctx->head);
 			ctx->head = tmp;
 		}
 		ctx->tail = 0;
@@ -83,7 +84,7 @@ int lfq_clean(struct lfq_ctx *ctx){
 		memset(ctx,0,sizeof(struct lfq_ctx));
 	else
 		return -1;
-
+		
 	return 0;
 }
 
@@ -92,12 +93,13 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	struct lfq_node * insert_node = calloc(1,sizeof(struct lfq_node));
 	if (!insert_node)
 		return -errno;
-
 	insert_node->data=data;
 	do {
 		p = (struct lfq_node *) ctx->tail;
 	} while(!CAS(&ctx->tail,p,insert_node));
-	ATOMIC_SET(&p->next, insert_node);
+	//printf("push %p\n", insert_node);
+	p->next = insert_node;
+	mb(); // memory barrier
 	ATOMIC_ADD( &ctx->count, 1);
 	return 0;
 }
@@ -116,24 +118,31 @@ void free_tid(struct lfq_ctx *ctx, int tid) {
 
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	void * ret=0;
-	struct lfq_node * p, * volatile pn;
+	struct lfq_node * p, * pn;
 	do {
 		p = (struct lfq_node *) ctx->head;
 		ctx->HP[tid] = p;
+		mb();
 		if (p!= ctx->head)
 			continue;
-		pn = p->next;
-		if (!pn){
+		pn = (struct lfq_node *) p->next;
+		if (pn==0 || pn != p->next){
 			ctx->HP[tid] = 0;
 			return 0;
 		}
-	} while(!CAS(&ctx->head, p, pn));
+	} while( ! CAS(&ctx->head, p, pn) );
+	// printf("pop %p\n", p);
+	
+	if (p->next != pn) 
+		printf("WTF!!!?? %p, %p\n",  p->next, pn);
 	
 	ctx->HP[tid] = 0;
-	ret=p->next->data;
-	__sync_synchronize (); // prevent cpu cache cause aba problem
-	ATOMIC_SET(&p->next->can_free, true);
-	ATOMIC_SUB( &ctx->count, 1);
+	ret=(void *)pn->data;
+	pn->can_free = true;
+	ATOMIC_SUB( &ctx->count, 1 );
+	
+	if (p->next != pn) 
+		printf("WTF2!!!?? %p, %p\n",  p->next, pn);
 	safe_free(ctx, p);
 	return ret;
 }

@@ -23,6 +23,7 @@
 #define ATOMIC_SUB __sync_sub_and_fetch
 #define ATOMIC_SET __sync_lock_test_and_set
 #define ATOMIC_RELEASE __sync_lock_release
+#define mb __sync_synchronize
 
 #endif
 
