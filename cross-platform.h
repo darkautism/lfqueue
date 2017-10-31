@@ -9,7 +9,7 @@
 
 // malloc free
 #ifdef __KERNEL__
-        #define malloc(x) kmalloc(x, GFP_KERNEL )
+	#define malloc(x) kmalloc(x, GFP_KERNEL )
 	#define free kfree
 	#define calloc(x,y) kmalloc(x*y, GFP_KERNEL | __GFP_ZERO )
 	#include<linux/string.h>
@@ -21,6 +21,8 @@
 #define CAS __sync_bool_compare_and_swap
 #define ATOMIC_ADD __sync_add_and_fetch
 #define ATOMIC_SUB __sync_sub_and_fetch
+#define ATOMIC_SET __sync_lock_test_and_set
+#define ATOMIC_RELEASE __sync_lock_release
 
 #endif
 

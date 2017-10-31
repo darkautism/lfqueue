@@ -1,3 +1,5 @@
+CC=gcc
+
 
 all : p1c1 p4c4 p100c10 p10c100 example
 

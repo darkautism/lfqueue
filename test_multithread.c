@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,6 +6,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include <time.h>
 #include "lfq.h"
 
 #ifndef MAX_PRODUCER
@@ -39,6 +41,7 @@ void * addq( void * data ) {
 	}
 	__sync_sub_and_fetch(&cn_producer, 1);
 	printf("Producer thread [%lu] exited! Still %d running...\n",pthread_self(), cn_producer);
+	return 0;
 }
 
 void * delq( void * data ) {
@@ -49,12 +52,14 @@ void * delq( void * data ) {
 		if (p) {
 			free(p);
 			__sync_add_and_fetch(&cn_deled, 1);			
-		}
+		} else
+			pthread_yield(); // queue is empty, release CPU slice
 		sleep(0);
 	}
 
 	p = lfq_dequeue(ctx);
 	printf("Consumer thread [%lu] exited %d\n",pthread_self(),cn_producer);
+	return 0;
 }
 
 int main() {
@@ -81,7 +86,7 @@ int main() {
 	for ( i = 0 ; i < MAX_CONSUMER ; i++ )
 		pthread_join(thread_d[i], NULL);
 	
-	printf("Total push %"PRId64" elements, pop %"PRId64" elements.\n", cn_added, cn_deled);
+	printf("Total push %"PRId64" elements, pop %"PRId64" elements.\n", cn_added, cn_deled );
 	if ( cn_added == cn_deled )
 		printf("Test PASS!!\n");
 	else

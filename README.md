@@ -11,8 +11,7 @@ Just copy past everywhere and use it. If you copy these code into your project, 
 ## Next Milestone
 
 - Compile on windows ( Cygwin, MinGW ).
-- Try to fix -O0 flag problem.
-- Compile on MACOS ( I do not have MAC, need somebody help!! )
+- Compile in kernel module.
 
 ## Example
 
@@ -77,7 +76,6 @@ So lock-free queue have better performance then lock queue.
 **Dequeue**
 
 We choice Hazard Pointers to reaolve ABA problems. So dequeue is fast as enqueue.
-
 
 There has many papers to resolve this problem:
 
