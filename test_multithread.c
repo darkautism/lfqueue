@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,6 +6,7 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include <time.h>
 #include "lfq.h"
 
 #ifndef MAX_PRODUCER
@@ -16,6 +18,8 @@
 
 volatile uint64_t cn_added = 0;
 volatile uint64_t cn_deled = 0;
+
+volatile uint64_t cn_t = 0;
 volatile int cn_producer = 0;
 
 struct user_data{
@@ -39,22 +43,28 @@ void * addq( void * data ) {
 	}
 	__sync_sub_and_fetch(&cn_producer, 1);
 	printf("Producer thread [%lu] exited! Still %d running...\n",pthread_self(), cn_producer);
+	return 0;
 }
 
 void * delq( void * data ) {
 	struct lfq_ctx * ctx = data;
 	struct user_data * p;
+	int tid = __sync_fetch_and_add(&cn_t, 1);
+	
+	
 	while(ctx->count || cn_producer) {
-		p = lfq_dequeue(ctx);
+		p = lfq_dequeue_tid(ctx, tid);
 		if (p) {
 			free(p);
 			__sync_add_and_fetch(&cn_deled, 1);			
-		}
+		} else
+			pthread_yield(); // queue is empty, release CPU slice
 		sleep(0);
 	}
 
-	p = lfq_dequeue(ctx);
+	// p = lfq_dequeue_tid(ctx, tid);
 	printf("Consumer thread [%lu] exited %d\n",pthread_self(),cn_producer);
+	return 0;
 }
 
 int main() {
@@ -81,7 +91,7 @@ int main() {
 	for ( i = 0 ; i < MAX_CONSUMER ; i++ )
 		pthread_join(thread_d[i], NULL);
 	
-	printf("Total push %"PRId64" elements, pop %"PRId64" elements.\n", cn_added, cn_deled);
+	printf("Total push %"PRId64" elements, pop %"PRId64" elements.\n", cn_added, cn_deled );
 	if ( cn_added == cn_deled )
 		printf("Test PASS!!\n");
 	else
