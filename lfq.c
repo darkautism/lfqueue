@@ -98,7 +98,8 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 		p = (struct lfq_node *) ctx->tail;
 	} while(!CAS(&ctx->tail,p,insert_node));
 	//printf("push %p\n", insert_node);
-	p->next = insert_node;
+	// p->next = insert_node;
+	ATOMIC_SET(&p->next,insert_node);
 	mb(); // memory barrier
 	ATOMIC_ADD( &ctx->count, 1);
 	return 0;
@@ -121,13 +122,18 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	struct lfq_node * p, * pn;
 	do {
 		p = (struct lfq_node *) ctx->head;
-		ctx->HP[tid] = p;
+		// ATOMIC_SET(&p,*head);
+		// ctx->HP[tid] = p;
+		ATOMIC_SET(&ctx->HP[tid],p);
 		mb();
 		if (p!= ctx->head)
 			continue;
-		pn = (struct lfq_node *) p->next;
+		//pn = (struct lfq_node *) p->next;
+		ATOMIC_SET(&pn,p->next);
 		if (pn==0 || pn != p->next){
-			ctx->HP[tid] = 0;
+			//ctx->HP[tid] = 0;
+			ATOMIC_RELEASE(&ctx->HP[tid]);
+			mb();
 			return 0;
 		}
 	} while( ! CAS(&ctx->head, p, pn) );
@@ -135,14 +141,23 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	
 	if (p->next != pn) 
 		printf("WTF!!!?? %p, %p\n",  p->next, pn);
+	if (p->fuck) 
+		printf("FUCK!!!?? %d\n",  p->fuck);
 	
-	ctx->HP[tid] = 0;
+	// ctx->HP[tid] = 0;
+	ATOMIC_RELEASE(&ctx->HP[tid]);
+	mb();
 	ret=(void *)pn->data;
-	pn->can_free = true;
+	ATOMIC_SET(&pn->can_free, true);
 	ATOMIC_SUB( &ctx->count, 1 );
+	ATOMIC_ADD( &p->fuck, 1 );
 	
 	if (p->next != pn) 
 		printf("WTF2!!!?? %p, %p\n",  p->next, pn);
+	
+	if (p->fuck>1) 
+		printf("FUCK!!!?? %d\n",  p->fuck);
+	mb();
 	safe_free(ctx, p);
 	return ret;
 }

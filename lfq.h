@@ -3,23 +3,24 @@
 
 struct lfq_node{
 	void * data;
-	struct lfq_node volatile * next;
+	struct lfq_node * volatile next;
+	struct lfq_node * volatile free_next;
+	int fuck;
 	int can_free;
-	struct lfq_node * free_next;
 };
 
 #define MAXHPSIZE 256
 #define MAXFREE 10
 
 struct lfq_ctx{
-	struct lfq_node volatile * head;
-	struct lfq_node * tail;
+	volatile struct lfq_node  * volatile head;
+	volatile struct lfq_node  * volatile tail;
 	int volatile count;
-	struct lfq_node volatile * HP[MAXHPSIZE];
-	int volatile tid_map[MAXHPSIZE];
+	volatile struct lfq_node * HP[MAXHPSIZE];
+	volatile int tid_map[MAXHPSIZE];
 	int volatile is_freeing;
-	struct lfq_node * fph; // free pool head
-	struct lfq_node * fpt; // free pool tail
+	struct lfq_node * volatile fph; // free pool head
+	struct lfq_node * volatile fpt; // free pool tail
 };
 
 int lfq_init(struct lfq_ctx *ctx);
