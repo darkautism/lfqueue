@@ -82,7 +82,7 @@ There has many papers to resolve this problem:
 
 - Lock-Free Reference Counting
 - ABA-Prevention Tags
-- [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Still have crash bug...**
+- [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Beta**
 - DACS (not DWACS)
 - [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **Stable**
 
