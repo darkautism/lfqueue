@@ -6,11 +6,10 @@ Support multiple comsumer and multiple producer at sametime.
 
 ## How to use
 
-Just copy past everywhere and use it. If you copy these code into your project, you must use -O0 flag to compile.
+Just copy past everywhere and use it. If you copy these code into your project.
 
 ## Next Milestone
 
-- Compile on windows ( Cygwin, MinGW ).
 - Compile on MACOS ( **I do not have MAC, need somebody help!!** )
 - Compile in kernel module.
 
