@@ -24,7 +24,7 @@ void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 		return; // this pool free is not support multithreading.
 	struct lfq_node * p;
 	
-	for ( int i = 0 ; i < MAXFREE ; i++ ) {
+	for ( int i = 0 ; i < MAXFREE || freeall ; i++ ) {
 		p = ctx->fph;
 		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, p) )
 			goto exit;
@@ -37,12 +37,12 @@ exit:
 }
 
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	if (!lfn->can_free)
+	// if (!lfn->can_free)
 		enpool(ctx, lfn);
-	else if ( inHP(ctx, lfn) )
-		enpool(ctx, lfn);
-	else 
-		free(lfn);
+	// else if ( inHP(ctx, lfn) )
+	// 	enpool(ctx, lfn);
+	// else 
+	// 	free(lfn);
 		
 	free_pool(ctx, false);
 }
@@ -97,9 +97,7 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	do {
 		p = (struct lfq_node *) ctx->tail;
 	} while(!CAS(&ctx->tail,p,insert_node));
-	//printf("push %p\n", insert_node);
-	// p->next = insert_node;
-	ATOMIC_SET(&p->next,insert_node);
+	p->next = insert_node;
 	mb(); // memory barrier
 	ATOMIC_ADD( &ctx->count, 1);
 	return 0;
@@ -122,41 +120,20 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	struct lfq_node * p, * pn;
 	do {
 		p = (struct lfq_node *) ctx->head;
-		// ATOMIC_SET(&p,*head);
-		// ctx->HP[tid] = p;
-		ATOMIC_SET(&ctx->HP[tid],p);
-		mb();
-		if (p!= ctx->head)
+		ctx->HP[tid] = p;
+		if (p != ctx->head)
 			continue;
-		//pn = (struct lfq_node *) p->next;
-		ATOMIC_SET(&pn,p->next);
+		pn = (struct lfq_node *) p->next;
 		if (pn==0 || pn != p->next){
-			//ctx->HP[tid] = 0;
-			ATOMIC_RELEASE(&ctx->HP[tid]);
-			mb();
+			ctx->HP[tid] = 0;
 			return 0;
 		}
 	} while( ! CAS(&ctx->head, p, pn) );
-	// printf("pop %p\n", p);
 	
-	if (p->next != pn) 
-		printf("WTF!!!?? %p, %p\n",  p->next, pn);
-	if (p->fuck) 
-		printf("FUCK!!!?? %d\n",  p->fuck);
-	
-	// ctx->HP[tid] = 0;
-	ATOMIC_RELEASE(&ctx->HP[tid]);
-	mb();
+	ctx->HP[tid] = 0;
 	ret=(void *)pn->data;
 	ATOMIC_SET(&pn->can_free, true);
 	ATOMIC_SUB( &ctx->count, 1 );
-	ATOMIC_ADD( &p->fuck, 1 );
-	
-	if (p->next != pn) 
-		printf("WTF2!!!?? %p, %p\n",  p->next, pn);
-	
-	if (p->fuck>1) 
-		printf("FUCK!!!?? %d\n",  p->fuck);
 	mb();
 	safe_free(ctx, p);
 	return ret;

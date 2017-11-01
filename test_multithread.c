@@ -18,6 +18,8 @@
 
 volatile uint64_t cn_added = 0;
 volatile uint64_t cn_deled = 0;
+
+volatile uint64_t cn_t = 0;
 volatile int cn_producer = 0;
 
 struct user_data{
@@ -47,8 +49,11 @@ void * addq( void * data ) {
 void * delq( void * data ) {
 	struct lfq_ctx * ctx = data;
 	struct user_data * p;
+	int tid = __sync_fetch_and_add(&cn_t, 1);
+	
+	
 	while(ctx->count || cn_producer) {
-		p = lfq_dequeue(ctx);
+		p = lfq_dequeue_tid(ctx, tid);
 		if (p) {
 			free(p);
 			__sync_add_and_fetch(&cn_deled, 1);			
@@ -57,7 +62,7 @@ void * delq( void * data ) {
 		sleep(0);
 	}
 
-	p = lfq_dequeue(ctx);
+	// p = lfq_dequeue_tid(ctx, tid);
 	printf("Consumer thread [%lu] exited %d\n",pthread_self(),cn_producer);
 	return 0;
 }
