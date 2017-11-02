@@ -1,12 +1,14 @@
 #include "cross-platform.h"
 #include "lfq.h"
 #include <errno.h>
+#define MAXFREE 10
 
-#include <stdio.h>
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	for ( int i = 0 ; i < MAXHPSIZE ; i++ )
+	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ){
+		lmb();
 		if (ctx->HP[i] == lfn)
 			return 1;
+	}
 	
 	return 0;
 }
@@ -16,7 +18,7 @@ void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	do {
 		p = ctx->fpt;
 	} while(!CAS(&ctx->fpt, p, lfn));
-	ATOMIC_SET(&p->free_next, lfn);
+	p->free_next = lfn;
 }
 
 void free_pool(struct lfq_ctx *ctx, bool freeall ) {
@@ -29,26 +31,23 @@ void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, p) )
 			goto exit;
 		ctx->fph = p->free_next;
-		mb(); 
 		free(p);
 	}
 exit:
-	ATOMIC_SET(&ctx->is_freeing,false);
+	ctx->is_freeing = false;
 }
 
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	// if (!lfn->can_free)
+	if (lfn->can_free && !inHP(ctx, lfn) )
+		free(lfn);
+	else
 		enpool(ctx, lfn);
-	// else if ( inHP(ctx, lfn) )
-	// 	enpool(ctx, lfn);
-	// else 
-	// 	free(lfn);
 		
 	free_pool(ctx, false);
 }
 
 
-int lfq_init(struct lfq_ctx *ctx) {
+int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
 	struct lfq_node * tmpnode = calloc(1,sizeof(struct lfq_node));
 	if (!tmpnode) 
 		return -errno;
@@ -56,13 +55,18 @@ int lfq_init(struct lfq_ctx *ctx) {
 	struct lfq_node * free_pool_node = calloc(1,sizeof(struct lfq_node));
 	if (!free_pool_node) 
 		return -errno;
-
+		
 	tmpnode->can_free = free_pool_node->can_free = true;
-	memset(ctx,0,sizeof(struct lfq_ctx));
-	ctx->head=ctx->tail=tmpnode;
-	ctx->fph=ctx->fpt=free_pool_node;
+	memset(ctx, 0, sizeof(struct lfq_ctx));
+	
+	ctx->MAXHPSIZE = max_consume_thread;
+	ctx->HP = calloc(max_consume_thread,sizeof(struct lfq_node));
+	ctx->tid_map = calloc(max_consume_thread,sizeof(struct lfq_node));
+	ctx->head = ctx->tail=tmpnode;
+	ctx->fph = ctx->fpt=free_pool_node;
 	return 0;
 }
+
 int lfq_clean(struct lfq_ctx *ctx){
 	if ( ctx->tail && ctx->head ) { // if have data in queue
 		struct lfq_node *tmp;
@@ -80,9 +84,11 @@ int lfq_clean(struct lfq_ctx *ctx){
 		free(ctx->fpt); // free the empty node
 		ctx->fph=ctx->fpt=0;
 	}
-	if ( !ctx->fph && !ctx->fpt )
+	if ( !ctx->fph && !ctx->fpt ) {
+		free((void *)ctx->HP);
+		free((void *)ctx->tid_map);
 		memset(ctx,0,sizeof(struct lfq_ctx));
-	else
+	} else
 		return -1;
 		
 	return 0;
@@ -98,13 +104,12 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 		p = (struct lfq_node *) ctx->tail;
 	} while(!CAS(&ctx->tail,p,insert_node));
 	p->next = insert_node;
-	mb(); // memory barrier
 	ATOMIC_ADD( &ctx->count, 1);
 	return 0;
 }
 
 int alloc_tid(struct lfq_ctx *ctx) {
-	for ( int i = 0 ; i < MAXHPSIZE ; i++ )
+	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ )
 		if ( ctx->tid_map[i] == 0 )
 			if ( CAS(&ctx->tid_map[i],0,1))
 				return i;
@@ -112,7 +117,7 @@ int alloc_tid(struct lfq_ctx *ctx) {
 }
 
 void free_tid(struct lfq_ctx *ctx, int tid) {
-	ATOMIC_RELEASE(&ctx->tid_map[tid]);
+	ctx->tid_map[tid]=0;
 }
 
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
@@ -120,7 +125,10 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	struct lfq_node * p, * pn;
 	do {
 		p = (struct lfq_node *) ctx->head;
+		if (p==ctx->tail)
+			return 0;
 		ctx->HP[tid] = p;
+		mb();
 		if (p != ctx->head)
 			continue;
 		pn = (struct lfq_node *) p->next;
@@ -131,10 +139,9 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	} while( ! CAS(&ctx->head, p, pn) );
 	
 	ctx->HP[tid] = 0;
-	ret=(void *)pn->data;
-	ATOMIC_SET(&pn->can_free, true);
+	ret=pn->data;
+	pn->can_free= true;
 	ATOMIC_SUB( &ctx->count, 1 );
-	mb();
 	safe_free(ctx, p);
 	return ret;
 }

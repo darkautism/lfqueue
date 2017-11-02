@@ -5,7 +5,7 @@
 int main() {
 	long ret;
 	struct lfq_ctx ctx;
-	lfq_init(&ctx);
+	lfq_init(&ctx, 1);
 	lfq_enqueue(&ctx,(void *)1);
 	lfq_enqueue(&ctx,(void *)3);
 	lfq_enqueue(&ctx,(void *)5);

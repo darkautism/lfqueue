@@ -15,7 +15,13 @@ Just copy past everywhere and use it. If you copy these code into your project.
 
 ## Example
 
+### Sample example
+
 It is an minimize sample code for how to using lfq.
+
+**Even if int or long value is valid input data, but you will hard to distinguish empty queue or other error message.**
+
+**We not suggestion use int or long as queue data type**
 
 ``` c
 #include <stdio.h>
@@ -25,7 +31,7 @@ It is an minimize sample code for how to using lfq.
 int main() {
 	long ret;
 	struct lfq_ctx ctx;
-	lfq_init(&ctx);
+	lfq_init(&ctx, 0);
 	lfq_enqueue(&ctx,(void *)1);
 	lfq_enqueue(&ctx,(void *)3);
 	lfq_enqueue(&ctx,(void *)5);
@@ -40,6 +46,88 @@ int main() {
 	return 0;
 }
 ```
+
+### Advance example
+
+If you want to get best performance with the cost of developing speed, you can control thread_id yourself.
+
+**This API only impilement on HP branch**
+
+``` c
+#include <stdio.h>
+#include <stdlib.h>
+#include "lfq.h"
+
+#define MAX_CONSUMER_THREAD 4
+
+int main() {
+	long ret;
+	struct lfq_ctx ctx;
+	lfq_init(&ctx, MAX_CONSUMER_THREAD);
+	lfq_enqueue(&ctx,(void *)1);
+	
+	// The second number is thread id, this thread id should unique between threads.
+	// And this tid must less than MAX_CONSUMER_THREAD
+	// In this sample code, this tid must 0, 1, 2, 3.
+	ret = (long)lfq_dequeue_tid(&ctx, 1);
+
+	lfq_clean(&ctx);
+	return 0;
+}
+```
+
+## API
+
+### lfq_init(struct lfq_ctx *ctx, int max_consume_thread)
+
+Init lock-free queue.
+
+**Arguments:**
+- **ctx** : Lock-free queue handler.
+- **max_consume_thread** : Max consume thread numbers. If this value set to zero, use default value (16).
+
+**Return:** The lfq_init() functions return zero on success. On error, this functions return negative errno.
+
+
+### lfq_clean(struct lfq_ctx *ctx)
+
+Clean lock-free queue from ctx.
+
+**Arguments:**
+- **ctx** : Lock-free queue handler.
+
+**Return:** The lfq_clean() functions return zero on success. On error, this functions return -1.
+
+
+### lfq_enqueue(struct lfq_ctx *ctx, void * data)
+
+Push data into queue.
+
+**Arguments:**
+- **ctx** : Lock-free queue handler.
+- **data** : User data.
+
+**Return:** The lfq_clean() functions return zero on success. On error, this functions return negative errno.
+
+
+### lfq_dequeue(struct lfq_ctx *ctx)
+
+Pop data from queue.
+
+**Arguments:**
+- **ctx** : Lock-free queue handler.
+
+**Return:** The lfq_clean() functions return zero if empty queue. Return positive pointer.  On error, this functions return negative errno.
+
+### lfq_dequeue_tid(struct lfq_ctx *ctx, int tid)
+
+Pop data from queue.
+
+**Arguments:**
+- **ctx** : Lock-free queue handler.
+- **tid** : Unique thread id.
+
+**Return:** The lfq_dequeue_tid() functions return zero if empty queue. Return positive pointer.  On error, this functions return negative errno.
 
 ## Issues
 
