@@ -4,14 +4,16 @@
 #define MAXFREE 150
 
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ )
+	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ) {
+		lmb();
 		if (ctx->HP[i] == lfn)
 			return 1;
+	}
 	return 0;
 }
 
 void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	struct lfq_node * p;
+	volatile struct lfq_node * p;
 	do {
 		p = ctx->fpt;
 	} while(!CAS(&ctx->fpt, p, lfn));
@@ -21,14 +23,14 @@ void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 	if (!CAS(&ctx->is_freeing, 0, 1))
 		return; // this pool free is not support multithreading.
-	struct lfq_node * p;
+	volatile struct lfq_node * p;
 	
 	for ( int i = 0 ; i < MAXFREE || freeall ; i++ ) {
 		p = ctx->fph;
-		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, p) )
+		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, (struct lfq_node *)p) )
 			goto exit;
 		ctx->fph = p->free_next;
-		free(p);
+		free((void *)p);
 	}
 exit:
 	ctx->is_freeing = false;
@@ -95,7 +97,7 @@ int lfq_clean(struct lfq_ctx *ctx){
 		free_pool(ctx, true);
 		if ( ctx->fph != ctx->fpt )
 			return -1;
-		free(ctx->fpt); // free the empty node
+		free((void *)ctx->fpt); // free the empty node
 		ctx->fph=ctx->fpt=0;
 	}
 	if ( !ctx->fph && !ctx->fpt ) {
@@ -124,15 +126,15 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	void * ret=0;
-	struct lfq_node * p, * pn;
+	volatile struct lfq_node * p, * pn;
 	int cn_runtimes = 0;
 	do {
-		p =  (struct lfq_node *) ctx->head;
+		p = ctx->head;
 		ctx->HP[tid] = p;
 		smb();
 		if (p != ctx->head)
 			continue;
-		pn = (struct lfq_node *) p->next;
+		pn = p->next;
 		if (pn==0 || pn != p->next){
 			ctx->HP[tid] = 0;
 			return 0;
@@ -142,7 +144,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	ret=pn->data;
 	pn->can_free= true;
 	ATOMIC_SUB( &ctx->count, 1 );
-	safe_free(ctx, p);
+	safe_free(ctx, (struct lfq_node *)p);
 	return ret;
 }
 

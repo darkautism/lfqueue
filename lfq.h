@@ -15,8 +15,8 @@ struct lfq_ctx{
 	volatile struct lfq_node * * HP;
 	volatile int * tid_map;
 	int volatile is_freeing;
-	struct lfq_node * volatile fph; // free pool head
-	struct lfq_node * volatile fpt; // free pool tail
+	volatile struct lfq_node * volatile fph; // free pool head
+	volatile struct lfq_node * volatile fpt; // free pool tail
 	int MAXHPSIZE;
 };
 
