@@ -1,16 +1,12 @@
 #include "cross-platform.h"
 #include "lfq.h"
 #include <errno.h>
-#define MAXFREE 10
+#define MAXFREE 150
 
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ){
-		volatile struct lfq_node ** tmphp = &ctx->HP[i];
-		lmb();
-		if (*tmphp == lfn)
+	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ )
+		if (ctx->HP[i] == lfn)
 			return 1;
-	}
-	
 	return 0;
 }
 
@@ -40,14 +36,30 @@ exit:
 }
 
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	if (lfn->can_free && !inHP(ctx, lfn) )
-		free(lfn);
-	else
+	if (lfn->can_free && !inHP(ctx,lfn)) {
+		 // free is not thread safety
+		if (CAS(&ctx->is_freeing, 0, 1)) {
+			free(lfn);
+			ctx->is_freeing = false;
+			smb();
+		} else
+			enpool(ctx, lfn);
+	} else
 		enpool(ctx, lfn);
-		
 	free_pool(ctx, false);
 }
 
+int alloc_tid(struct lfq_ctx *ctx) {
+	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ )
+		if ( ctx->tid_map[i] == 0 )
+			if ( CAS(&ctx->tid_map[i],0,1))
+				return i;
+	return -1;
+}
+
+void free_tid(struct lfq_ctx *ctx, int tid) {
+	ctx->tid_map[tid]=0;
+}
 
 int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
 	struct lfq_node * tmpnode = calloc(1,sizeof(struct lfq_node));
@@ -60,12 +72,12 @@ int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
 		
 	tmpnode->can_free = free_pool_node->can_free = true;
 	memset(ctx, 0, sizeof(struct lfq_ctx));
-	
 	ctx->MAXHPSIZE = max_consume_thread;
 	ctx->HP = calloc(max_consume_thread,sizeof(struct lfq_node));
 	ctx->tid_map = calloc(max_consume_thread,sizeof(struct lfq_node));
 	ctx->head = ctx->tail=tmpnode;
 	ctx->fph = ctx->fpt=free_pool_node;
+	
 	return 0;
 }
 
@@ -110,40 +122,22 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	return 0;
 }
 
-int alloc_tid(struct lfq_ctx *ctx) {
-	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ )
-		if ( ctx->tid_map[i] == 0 )
-			if ( CAS(&ctx->tid_map[i],0,1))
-				return i;
-	return -1;
-}
-
-void free_tid(struct lfq_ctx *ctx, int tid) {
-	ctx->tid_map[tid]=0;
-}
-
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	void * ret=0;
 	struct lfq_node * p, * pn;
-	volatile struct lfq_node ** tmphp = &ctx->HP[tid];
-	volatile struct lfq_node ** head =  (volatile struct lfq_node **) &ctx->head;
 	int cn_runtimes = 0;
 	do {
-		p =  (struct lfq_node *) *head;
-		if (p==ctx->tail)
-			return 0;
-		*tmphp = p;
-		mb();
-		if (p != *head)
+		p =  (struct lfq_node *) ctx->head;
+		ctx->HP[tid] = p;
+		smb();
+		if (p != ctx->head)
 			continue;
 		pn = (struct lfq_node *) p->next;
 		if (pn==0 || pn != p->next){
 			ctx->HP[tid] = 0;
 			return 0;
 		}
-	} while( ! CAS(head, p, pn) );
-	smb();
-	
+	} while( ! CAS(&ctx->head, p, pn) );
 	ctx->HP[tid] = 0;
 	ret=pn->data;
 	pn->can_free= true;

@@ -19,7 +19,7 @@ p10c100: liblfq
 	gcc -std=c99 -g test_multithread.c -o bin/test_p10c100 -L. -Wl,-Bstatic -llfq -Wl,-Bdynamic -lpthread -D MAX_PRODUCER=10 -D MAX_CONSUMER=100
 	
 liblfq: lfq.c 
-	@gcc -std=c99 -c -g lfq.c -lpthread
+	@gcc -std=c99 -c -O3 lfq.c -lpthread
 	@ar rcs liblfq.a lfq.o
 	@gcc -std=c99 -fPIC -c lfq.c
 	@gcc -shared -o liblfq.so.1.0.0 lfq.o
