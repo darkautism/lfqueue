@@ -131,7 +131,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	do {
 		p = ctx->head;
 		ctx->HP[tid] = p;
-		smb();
+		mb();
 		if (p != ctx->head)
 			continue;
 		pn = p->next;
@@ -140,6 +140,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 			return 0;
 		}
 	} while( ! CAS(&ctx->head, p, pn) );
+	smb();
 	ctx->HP[tid] = 0;
 	ret=pn->data;
 	pn->can_free= true;
