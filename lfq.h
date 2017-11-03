@@ -12,7 +12,7 @@ struct lfq_ctx{
 	volatile struct lfq_node  * volatile head;
 	volatile struct lfq_node  * volatile tail;
 	int volatile count;
-	struct lfq_node * volatile * HP;
+	volatile struct lfq_node * * HP;
 	volatile int * tid_map;
 	int volatile is_freeing;
 	struct lfq_node * volatile fph; // free pool head

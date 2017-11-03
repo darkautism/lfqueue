@@ -5,8 +5,9 @@
 
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ){
+		volatile struct lfq_node ** tmphp = &ctx->HP[i];
 		lmb();
-		if (ctx->HP[i] == lfn)
+		if (*tmphp == lfn)
 			return 1;
 	}
 	
@@ -35,6 +36,7 @@ void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 	}
 exit:
 	ctx->is_freeing = false;
+	smb();
 }
 
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
@@ -123,20 +125,24 @@ void free_tid(struct lfq_ctx *ctx, int tid) {
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	void * ret=0;
 	struct lfq_node * p, * pn;
+	volatile struct lfq_node ** tmphp = &ctx->HP[tid];
+	volatile struct lfq_node ** head =  (volatile struct lfq_node **) &ctx->head;
+	int cn_runtimes = 0;
 	do {
-		p = (struct lfq_node *) ctx->head;
+		p =  (struct lfq_node *) *head;
 		if (p==ctx->tail)
 			return 0;
-		ctx->HP[tid] = p;
+		*tmphp = p;
 		mb();
-		if (p != ctx->head)
+		if (p != *head)
 			continue;
 		pn = (struct lfq_node *) p->next;
 		if (pn==0 || pn != p->next){
 			ctx->HP[tid] = 0;
 			return 0;
 		}
-	} while( ! CAS(&ctx->head, p, pn) );
+	} while( ! CAS(head, p, pn) );
+	smb();
 	
 	ctx->HP[tid] = 0;
 	ret=pn->data;
