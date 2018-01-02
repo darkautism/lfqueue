@@ -4,9 +4,22 @@ Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line 
 
 Support multiple comsumer and multiple producer at sametime.
 
-| Linux | Windows(msbuild) |
-| ----- | ---------------- |
-|[![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP)|[![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)|
+| Arch              | Build status |
+| ----------------- | ------------ | 
+| Linux             | [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)|
+| Windows(msbuild)  | [![Build status](https://ci.appveyor.com/api/projects/status/yu04l5atf0j259kd?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-2puqk) |
+| Windows(Mingw)    | [![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP) |
+| Windows(MinGW64)  | [![Build status](https://ci.appveyor.com/api/projects/status/4457r35yh2x4f52d/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-4jybw/branch/HP) |
+| Windows(Cygwin)   | [![Build status](https://ci.appveyor.com/api/projects/status/xb9oww8jtbaxa9so/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-7hmwx/branch/HP) |
+| Windows(Cygwin64) | [![Build status](https://ci.appveyor.com/api/projects/status/qjltyv4j963s86xd/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-wepul/branch/HP) |
+
+## Build Guide
+
+In any gnu toolchain, just type `make`.
+
+In any visual studio build toolchain, just type `msbuild "Visual Stdio\lfqueue.sln" /verbosity:minimal /property:Configuration=Release /property:Platform=x86` or 64bit version `msbuild "Visual Stdio\lfqueue.sln" /verbosity:minimal /property:Configuration=Release /property:Platform=x64`.
+
+
 ## How to use
 
 Just copy past everywhere and use it. If you copy these code into your project.
