@@ -4,6 +4,9 @@ Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line 
 
 Support multiple comsumer and multiple producer at sametime.
 
+| Linux | Windows(msbuild) |
+| ----- | ---------------- |
+|[![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP)|[![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)|
 ## How to use
 
 Just copy past everywhere and use it. If you copy these code into your project.
