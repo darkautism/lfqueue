@@ -52,10 +52,11 @@ void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 }
 
 int alloc_tid(struct lfq_ctx *ctx) {
-	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ )
-		if ( ctx->tid_map[i] == 0 )
-			if ( CAS(&ctx->tid_map[i],0,1))
+	for (int i = 0; i < ctx->MAXHPSIZE; i++) 
+		if (ctx->tid_map[i] == 0) 
+			if (CAS(&ctx->tid_map[i], 0, 1))
 				return i;
+
 	return -1;
 }
 
