@@ -49,10 +49,12 @@
 	#define smb() asm volatile( "sfence" )
 
 	// thread
+	#include <pthread.h>
+	#include <sched.h>
 	#define THREAD_WAIT(x) pthread_join(x, NULL);
 	#define THREAD_ID pthread_self
 	#define THREAD_FN void *
-	#define THREAD_YIELD pthread_yield
+	#define THREAD_YIELD sched_yield
 	#define THREAD_TOKEN pthread_t
 
 #else
@@ -80,7 +82,7 @@
 	#endif
 
 	// thread
-
+	#include <windows.h>
 	#define THREAD_WAIT(x) WaitForSingleObject(x, INFINITE);
 	#define THREAD_ID GetCurrentThreadId
 	#define THREAD_FN WORD WINAPI

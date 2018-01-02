@@ -17,10 +17,6 @@ environment:
       PLATFORM: x86
     - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2015
       PLATFORM: x64
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2013
-      PLATFORM: x86
-    - APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2013
-      PLATFORM: x64
 
 build_script:
   - msbuild "Visual Stdio\lfqueue.sln" /verbosity:minimal /logger:"C:\Program Files\AppVeyor\BuildAgent\Appveyor.MSBuildLogger.dll" /property:Configuration=Release /property:Platform=%PLATFORM%
