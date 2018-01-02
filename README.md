@@ -4,14 +4,14 @@ Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line 
 
 Support multiple comsumer and multiple producer at sametime.
 
-| Arch              | Build status |
-| ----------------- | ------------ | 
-| Linux             | [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)|
-| Windows(msbuild)  | [![Build status](https://ci.appveyor.com/api/projects/status/yu04l5atf0j259kd?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-2puqk) |
-| Windows(Mingw)    | [![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP) |
-| Windows(MinGW64)  | [![Build status](https://ci.appveyor.com/api/projects/status/4457r35yh2x4f52d/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-4jybw/branch/HP) |
-| Windows(Cygwin)   | [![Build status](https://ci.appveyor.com/api/projects/status/xb9oww8jtbaxa9so/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-7hmwx/branch/HP) |
-| Windows(Cygwin64) | [![Build status](https://ci.appveyor.com/api/projects/status/qjltyv4j963s86xd/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-wepul/branch/HP) |
+| Arch              | Build status | Test         |
+| ----------------- | ------------ | ------------ |
+| Linux             | [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)| 24 hr test passed |
+| Windows(msbuild)  | [![Build status](https://ci.appveyor.com/api/projects/status/yu04l5atf0j259kd?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-2puqk) | Not tested [Issue](#free-memory-very-slow-in-visual-studio) |
+| Windows(Mingw)    | [![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP) | Not tested |
+| Windows(MinGW64)  | [![Build status](https://ci.appveyor.com/api/projects/status/4457r35yh2x4f52d/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-4jybw/branch/HP) | Not tested |
+| Windows(Cygwin)   | [![Build status](https://ci.appveyor.com/api/projects/status/xb9oww8jtbaxa9so/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-7hmwx/branch/HP) | Not tested |
+| Windows(Cygwin64) | [![Build status](https://ci.appveyor.com/api/projects/status/qjltyv4j963s86xd/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-wepul/branch/HP) | Not tested |
 
 ## Build Guide
 
@@ -199,6 +199,10 @@ We can resolved it if cpu will not cache miss after CAS.
 ### ABA problem?
 
 No, ABA problem will segement fault. But we won't.
+
+### Free memory very slow in Visual studio
+
+Sorry, i have no idea why. Still finding problems in windows.
 
 ## Double width compare and swap (DWACS)
 
