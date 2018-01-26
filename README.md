@@ -186,15 +186,7 @@ There has many papers to resolve this problem:
 - Lock-Free Reference Counting
 - ABA-Prevention Tags
 - [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Beta**
-- DACS (not DWACS)
 - [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **Stable**
-
-
-### CPU cache miss?
-
-This issue cannot been resolved. CAS operator always cause this problem.
-
-We can resolved it if cpu will not cache miss after CAS.
 
 ### ABA problem?
 
@@ -203,10 +195,6 @@ No, ABA problem will segement fault. But we won't.
 ### Free memory very slow in Visual studio
 
 Sorry, i have no idea why. Still finding problems in windows.
-
-## Double width compare and swap (DWACS)
-
-On developing [experimental-DCAS](https://github.com/darkautism/lfqueue/tree/experimental-DCAS). I think this operator cannot impilement really lock-free queue.
 
 ## License
 
