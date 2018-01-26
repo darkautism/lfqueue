@@ -127,7 +127,7 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	void * ret=0;
-	volatile struct lfq_node * p, * pn;
+	volatile struct lfq_node * p=0, * pn=0;
 	int cn_runtimes = 0;
 	do {
 		p = ctx->head;
