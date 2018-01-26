@@ -28,6 +28,7 @@ Just copy past everywhere and use it. If you copy these code into your project.
 
 - Compile on MACOS ( **I do not have MAC, need somebody help!!** )
 - Compile in kernel module.
+- Use lock-free memory manager. (free is very slow in windows)
 
 ## Example
 
