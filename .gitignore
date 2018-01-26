@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/Visual Stdio/x64
+/Visual Stdio/lfqueue.VC.db
+/Visual Stdio/lfqueue.VC.VC.opendb
+/Visual Stdio/.vs/lfqueue/v14
+/Visual Stdio/Release
+/Visual Stdio/Debug
