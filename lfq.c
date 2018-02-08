@@ -117,6 +117,7 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	if (!insert_node)
 		return -errno;
 	insert_node->data=data;
+	mb();
 	do {
 		p = (struct lfq_node *) ctx->tail;
 	} while(!CAS(&ctx->tail,p,insert_node));
@@ -141,7 +142,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 			return 0;
 		}
 	} while( ! CAS(&ctx->head, p, pn) );
-	smb();
+	mb();
 	ctx->HP[tid] = 0;
 	ret=pn->data;
 	pn->can_free= true;
