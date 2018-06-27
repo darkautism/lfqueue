@@ -1,5 +1,6 @@
 #ifndef __LFQ_H__
 #define __LFQ_H__
+#include "cross-platform.h"
 
 struct lfq_node{
 	void * data;
@@ -25,4 +26,21 @@ int lfq_clean(struct lfq_ctx *ctx);
 int lfq_enqueue(struct lfq_ctx *ctx, void * data);
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid );
 void * lfq_dequeue(struct lfq_ctx *ctx );
+
+
+/**********************************************************
+ *
+ * This macro will dequeue forever.
+ * If you do not like high cost cpu,
+ * use original dequeue function with memory barrier,
+ * and sleep/thread_yield will be better idea.
+ * 
+ *********************************************************/
+#define LFQ_MB_DEQUEUE(ctx, ret) ({	\
+	do {							\
+		ret = lfq_dequeue(ctx);		\
+		mb();						\
+	} while(ret == 0);				\
+})
+
 #endif

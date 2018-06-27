@@ -148,6 +148,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	pn->can_free= true;
 	ATOMIC_SUB( &ctx->count, 1 );
 	safe_free(ctx, (struct lfq_node *)p);
+	mb();
 	return ret;
 }
 
