@@ -84,6 +84,24 @@ int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
 	return 0;
 }
 
+
+long lfg_count_freelist(const struct lfq_ctx *ctx) {
+	long count=0;
+	struct lfq_node *p = (struct lfq_node *)ctx->fph; // non-volatile
+	while(p) {
+		count++;
+		p = p->next;
+	}
+/*
+	while(pn = p->free_next) {
+		free(p);
+		p = pn;
+		count++;
+	}
+*/
+	return count;
+}
+
 int lfq_clean(struct lfq_ctx *ctx){
 	if ( ctx->tail && ctx->head ) { // if have data in queue
 		struct lfq_node *tmp;

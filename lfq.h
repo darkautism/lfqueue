@@ -26,6 +26,8 @@ struct lfq_ctx{
 
 int lfq_init(struct lfq_ctx *ctx, int max_consume_thread);
 int lfq_clean(struct lfq_ctx *ctx);
+long lfg_count_freelist(const struct lfq_ctx *ctx);
+
 int lfq_enqueue(struct lfq_ctx *ctx, void * data);
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid );
 void * lfq_dequeue(struct lfq_ctx *ctx );

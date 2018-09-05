@@ -122,8 +122,11 @@ int main() {
 	
 	for ( i = 0 ; i < MAX_CONSUMER ; i++ )
 		THREAD_WAIT(thread_d[i]);
-	
-	printf("Total push %"PRId64" elements, pop %"PRId64" elements.\n", cn_added, cn_deled );
+
+	long freecount = lfg_count_freelist(&ctx);
+	int clean = lfq_clean(&ctx);
+
+	printf("Total push %"PRId64" elements, pop %"PRId64" elements. freelist=%ld, clean = %d\n", cn_added, cn_deled, freecount, clean);
 	if ( cn_added == cn_deled )
 		printf("Test PASS!!\n");
 	else
