@@ -38,19 +38,19 @@ struct user_data{
 
 THREAD_FN addq( void * data ) {
 	struct lfq_ctx * ctx = data;
-	struct user_data * p=(struct user_data *)0xff;
-	long i;
 	int ret = 0;
-	for ( i = 0 ; i < 500000 ; i++) {
-		p = malloc(sizeof(struct user_data));
+	long added;
+	for (added = 0 ; added < 500000 ; added++) {
+		struct user_data * p = malloc(sizeof(struct user_data));
 		p->data=SOMEID;
 		if ( ( ret = lfq_enqueue(ctx,p) ) != 0 ) {
 			printf("lfq_enqueue failed, reason:%s\n", strerror(-ret));
+			ATOMIC_ADD64(&cn_added, added);
 			ATOMIC_SUB(&cn_producer, 1);
 			return 0;
 		}
-		ATOMIC_ADD64(&cn_added, 1);
 	}
+	ATOMIC_ADD64(&cn_added, added);
 	ATOMIC_SUB(&cn_producer, 1);
 	printf("Producer thread [%lu] exited! Still %d running...\n",THREAD_ID(), cn_producer);
 	return 0;
@@ -60,20 +60,27 @@ THREAD_FN delq(void * data) {
 	struct lfq_ctx * ctx = data;
 	struct user_data * p;
 	int tid = ATOMIC_ADD(&cn_t, 1);
-	
-	while(ctx->count || cn_producer) {
+
+	long deleted = 0;
+	while(1) {
 		p = lfq_dequeue_tid(ctx, tid);
 		if (p) {
 			if (p->data!=SOMEID){
 				printf("data wrong!!\n");
 				exit(1);
 			}
-				
+
 			free(p);
-			ATOMIC_ADD64(&cn_deled, 1);			
-		} else
-			THREAD_YIELD(); // queue is empty, release CPU slice
+			deleted++;
+		} else {
+			if (ctx->count || cn_producer)
+				THREAD_YIELD(); // queue is empty, release CPU slice
+			else
+				break; // queue is empty and no more producers
+		}
 	}
+
+	ATOMIC_ADD64(&cn_deled, deleted);
 
 	// p = lfq_dequeue_tid(ctx, tid);
 	printf("Consumer thread [%lu] exited %d\n",THREAD_ID(),cn_producer);
