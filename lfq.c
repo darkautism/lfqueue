@@ -1,8 +1,10 @@
 #include "cross-platform.h"
 #include "lfq.h"
+#include <assert.h>
 #include <errno.h>
 #define MAXFREE 150
 
+static
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ) {
 		lmb();
@@ -12,6 +14,7 @@ int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	return 0;
 }
 
+static
 void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	volatile struct lfq_node * p;
 	do {
@@ -20,6 +23,7 @@ void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	p->free_next = lfn;
 }
 
+static
 void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 	if (!CAS(&ctx->is_freeing, 0, 1))
 		return; // this pool free is not support multithreading.
@@ -37,20 +41,23 @@ exit:
 	smb();
 }
 
+static
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	if (lfn->can_free && !inHP(ctx,lfn)) {
-		 // free is not thread safety
+		// free is not thread-safe
 		if (CAS(&ctx->is_freeing, 0, 1)) {
-			free(lfn);
+			lfn->next = (void*)-1;    // poison the pointer to detect use-after-free
+			free(lfn);    // we got the lock; actually free
 			ctx->is_freeing = false;
 			smb();
-		} else
+		} else               // we didn't get the lock; only add to a freelist
 			enpool(ctx, lfn);
 	} else
 		enpool(ctx, lfn);
 	free_pool(ctx, false);
 }
 
+static
 int alloc_tid(struct lfq_ctx *ctx) {
 	for (int i = 0; i < ctx->MAXHPSIZE; i++) 
 		if (ctx->tid_map[i] == 0) 
@@ -60,6 +67,7 @@ int alloc_tid(struct lfq_ctx *ctx) {
 	return -1;
 }
 
+static
 void free_tid(struct lfq_ctx *ctx, int tid) {
 	ctx->tid_map[tid]=0;
 }
@@ -82,6 +90,24 @@ int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
 	ctx->fph = ctx->fpt=free_pool_node;
 	
 	return 0;
+}
+
+
+long lfg_count_freelist(const struct lfq_ctx *ctx) {
+	long count=0;
+	struct lfq_node *p = (struct lfq_node *)ctx->fph; // non-volatile
+	while(p) {
+		count++;
+		p = p->free_next;
+	}
+/*
+	while(pn = p->free_next) {
+		free(p);
+		p = pn;
+		count++;
+	}
+*/
+	return count;
 }
 
 int lfq_clean(struct lfq_ctx *ctx){
@@ -141,6 +167,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 			ctx->HP[tid] = 0;
 			return 0;
 		}
+		assert(pn != (void*)-1 && "read an already-freed node");
 	} while( ! CAS(&ctx->head, p, pn) );
 	mb();
 	ctx->HP[tid] = 0;

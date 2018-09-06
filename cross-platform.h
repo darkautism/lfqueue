@@ -38,15 +38,20 @@
 #define ATOMIC_SET __sync_lock_test_and_set
 #define ATOMIC_RELEASE __sync_lock_release
 
-#if defined __GNUC__ || defined __CYGWIN__ || defined __MINGW32__
+#if defined __GNUC__
 	#define ATOMIC_SUB __sync_sub_and_fetch
 	#define ATOMIC_SUB64 ATOMIC_SUB
 	#define CAS __sync_bool_compare_and_swap
+#define XCHG __sync_lock_test_and_set   // yes really.  The 2nd arg is limited to 1 on machines with TAS but not XCHG.  On x86 it's an arbitrary value
 	#define ATOMIC_ADD __sync_add_and_fetch
 	#define ATOMIC_ADD64 ATOMIC_ADD
 	#define mb __sync_synchronize
-	#define lmb() asm volatile( "lfence" )
-	#define smb() asm volatile( "sfence" )
+#if  defined(__x86_64__) || defined(__i386)
+//	#define lmb() asm volatile( "lfence" )
+//	#define smb() asm volatile( "sfence" )
+	#define lmb() asm volatile("":::"memory")   // compiler barrier only.  runtime reordering already impossible on x86
+	#define smb() asm volatile("":::"memory")
+#endif // else no definition
 
 	// thread
 	#include <pthread.h>
