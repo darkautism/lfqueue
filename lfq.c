@@ -1,5 +1,6 @@
 #include "cross-platform.h"
 #include "lfq.h"
+#include <assert.h>
 #include <errno.h>
 #define MAXFREE 150
 
@@ -13,6 +14,7 @@ int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	return 0;
 }
 
+static
 void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	volatile struct lfq_node * p;
 	do {
@@ -42,12 +44,13 @@ exit:
 static
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	if (lfn->can_free && !inHP(ctx,lfn)) {
-		 // free is not thread safety
+		// free is not thread-safe
 		if (CAS(&ctx->is_freeing, 0, 1)) {
-			free(lfn);
+			lfn->next = (void*)-1;    // poison the pointer to detect use-after-free
+			free(lfn);    // we got the lock; actually free
 			ctx->is_freeing = false;
 			smb();
-		} else
+		} else               // we didn't get the lock; only add to a freelist
 			enpool(ctx, lfn);
 	} else
 		enpool(ctx, lfn);
@@ -164,6 +167,7 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 			ctx->HP[tid] = 0;
 			return 0;
 		}
+		assert(pn != (void*)-1 && "read an already-freed node");
 	} while( ! CAS(&ctx->head, p, pn) );
 	mb();
 	ctx->HP[tid] = 0;
