@@ -131,6 +131,6 @@ int main() {
 		printf("Test PASS!!\n");
 	else
 		printf("Test Failed!!\n");
-	lfq_clean(&ctx);
+
 	return (cn_added != cn_deled);
 }
