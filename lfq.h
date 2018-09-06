@@ -6,8 +6,10 @@
 
 struct lfq_node{
 	void * data;
-	struct lfq_node * volatile next;
-	struct lfq_node * volatile free_next;
+	union {
+		struct lfq_node * volatile next;
+		struct lfq_node * volatile free_next;
+	};
 	volatile int can_free;
 };
 
@@ -31,7 +33,6 @@ long lfg_count_freelist(const struct lfq_ctx *ctx);
 int lfq_enqueue(struct lfq_ctx *ctx, void * data);
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid );
 void * lfq_dequeue(struct lfq_ctx *ctx );
-
 
 /**********************************************************
  *
