@@ -16,11 +16,22 @@ int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 
 static
 void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
+	// add to tail of the free list
+	lfn->free_next = NULL;
+	volatile struct lfq_node *old_tail = XCHG(&ctx->fpt, lfn);  // seq_cst
+	old_tail->free_next = lfn;
+
+	// getting nodes out of this will have exactly the same deallocation problem
+	// as the main queue.
+	// TODO: a stack might be easier to manage, but would increase contention.
+
+/*
 	volatile struct lfq_node * p;
 	do {
 		p = ctx->fpt;
 	} while(!CAS(&ctx->fpt, p, lfn));  // exchange using CAS
 	p->free_next = lfn;
+*/
 }
 
 static
@@ -28,7 +39,7 @@ void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 	if (!CAS(&ctx->is_freeing, 0, 1))
 		return; // this pool free is not support multithreading.
 	volatile struct lfq_node * p;
-	
+
 	for ( int i = 0 ; i < MAXFREE || freeall ; i++ ) {
 		p = ctx->fph;
 		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, (struct lfq_node *)p) )
@@ -138,22 +149,29 @@ int lfq_clean(struct lfq_ctx *ctx){
 }
 
 int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
-	struct lfq_node * p;
 	struct lfq_node * insert_node = calloc(1,sizeof(struct lfq_node));
 	if (!insert_node)
 		return -errno;
 	insert_node->data=data;
 //	mb();  // we've only written to "private" memory that other threads can't see.
+	volatile struct lfq_node *old_tail;
+#if 0
 	do {
-		p = (struct lfq_node *) ctx->tail;
-	} while(!CAS(&ctx->tail,p,insert_node));
-	p->next = insert_node;
-	ATOMIC_ADD( &ctx->count, 1);
+		old_tail = (struct lfq_node *) ctx->tail;
+	} while(!CAS(&ctx->tail,old_tail,insert_node));
+#else
+	old_tail = XCHG(&ctx->tail, insert_node);
+#endif
 	// We've claimed our spot in the insertion order by modifying tail
 	// we are the only inserting thread with a pointer to the old tail.
 
 	// now we can make it part of the list by overwriting the NULL pointer in the old tail
 	// This is safe whether or not other threads have updated ->next in our insert_node
+	assert(!(old_tail->next) && "old tail wasn't NULL");
+	old_tail->next = insert_node;
+	// TODO: could a consumer thread could have freed the old tail?  no because that would leave head=NULL
+
+//	ATOMIC_ADD( &ctx->count, 1);
 	return 0;
 }
 
