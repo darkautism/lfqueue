@@ -98,7 +98,7 @@ long lfg_count_freelist(const struct lfq_ctx *ctx) {
 	struct lfq_node *p = (struct lfq_node *)ctx->fph; // non-volatile
 	while(p) {
 		count++;
-		p = p->next;
+		p = p->free_next;
 	}
 /*
 	while(pn = p->free_next) {
