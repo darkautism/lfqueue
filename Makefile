@@ -21,16 +21,16 @@ bin/test_p10c100: liblfq.so.1.0.0 test_multithread.c
 	gcc $(CFLAGS) $(LDFLAGS) test_multithread.c -o bin/test_p10c100 -L. -Wl,-Bstatic -llfq -Wl,-Bdynamic -lpthread -D MAX_PRODUCER=10 -D MAX_CONSUMER=100
 
 liblfq.so.1.0.0: lfq.c lfq.h cross-platform.h
-	gcc $(CFLAGS) -c lfq.c   # -fno-pie for static linking?
+	gcc $(CFLAGS) $(CPPFLAGS) -c lfq.c   # -fno-pie for static linking?
 	ar rcs liblfq.a lfq.o
-	gcc $(CFLAGS) -fPIC -c lfq.c
+	gcc $(CFLAGS) $(CPPFLAGS) -fPIC -c lfq.c
 	gcc $(LDFLAGS) -shared -o liblfq.so.1.0.0 lfq.o
 
 test: bin/test_p1c1 bin/test_p4c4 bin/test_p100c10 bin/test_p10c100
-	bin/test_p1c1
-	bin/test_p4c4
-	bin/test_p100c10
-	bin/test_p10c100
+	$(TESTWRAPPER) bin/test_p1c1
+	$(TESTWRAPPER) bin/test_p4c4
+	$(TESTWRAPPER) bin/test_p100c10
+	$(TESTWRAPPER) bin/test_p10c100
 
 clean:
 	rm -rf *.o bin/* liblfq.so.1.0.0 liblfq.a
