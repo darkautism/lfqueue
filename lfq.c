@@ -176,22 +176,37 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 }
 
 void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
-	void * ret=0;
-	volatile struct lfq_node * p=0, * pn=0;
-	int cn_runtimes = 0;
+	//int cn_runtimes = 0;
+	volatile struct lfq_node *old_head, *new_head;
+#if 1  // HP[tid] stuff is necessary for deallocation.  (but it's still not safe).
 	do {
-		p = ctx->head;
-		ctx->HP[tid] = p;
+	retry:  // continue jumps to the bottom of the loop, and would attempt a CAS with uninitialized new_head
+		old_head = ctx->head;
+		ctx->HP[tid] = old_head;  // seq-cst store.  (better: use xchg instead of mov + mfence on x86)
 		mb();
-		if (p != ctx->head)
-			continue;
-		pn = p->next;
-		if (pn==0 || pn != p->next){
+
+		if (old_head != ctx->head)  // another thread freed it before seeing our HP[tid] store
+			goto retry;
+		new_head = old_head->next;   // FIXME: crash with old_head=NULL during deallocation (tid=5)?  (main thread=25486, this=25489)
+		if (new_head==0 /* || new_head != old_head->next*/ ){  // redoing the same load isn't useful
 			ctx->HP[tid] = 0;
-			return 0;
+			return 0;  // never remove the last node
 		}
-		assert(pn != (void*)-1 && "read an already-freed node");
-	} while( ! CAS(&ctx->head, p, pn) );
+		assert(new_head != (void*)-1 && "read an already-freed node");
+	} while( ! CAS(&ctx->head, old_head, new_head) );
+#else  // without HP[] stuff
+	do {
+		old_head = ctx->head;
+		//ctx->HP[tid] = old_head;
+		new_head = old_head->next;
+		//if (old_head != ctx->head) continue;
+		if (!new_head) {
+			// ctx->HP[tid] = 0;
+			return 0;  // never remove the last node
+		}
+		assert(new_head != (void*)-1 && "read an already-freed node");
+	} while( !CAS(&ctx->head, old_head, new_head) );
+#endif
 //	mb();  // CAS is already a memory barrier, at least on x86.
 
 	// we've atomically advanced head, and we're the thread that won the race to claim a node
@@ -199,14 +214,22 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 	// The list starts off with a dummy node, so the current head is always a node that's already been read.
 
 	ctx->HP[tid] = 0;
-	ret=pn->data;
-	pn->can_free= true;
-	ATOMIC_SUB( &ctx->count, 1 );
-	safe_free(ctx, (struct lfq_node *)p);
+	void *ret = new_head->data;
+	new_head->can_free = true;
+//	ATOMIC_SUB( &ctx->count, 1 );
+
+	//old_head->next = (void*)-1;  // done in safe-free in the actual free() path.  poison the pointer to detect use-after-free
+
+	// we need to avoid freeing until other readers are definitely not going to load its ->next in the CAS loop
+	safe_free(ctx, (struct lfq_node *)old_head);
+
+	//free(old_head);
 	return ret;
 }
 
 void * lfq_dequeue(struct lfq_ctx *ctx ) {
+	//return lfq_dequeue_tid(ctx, 0);  // TODO: let this inline even in the shared library
+// old version
 	int tid = alloc_tid(ctx);
 	if (tid==-1)
 		return (void *)-1; // To many thread race
