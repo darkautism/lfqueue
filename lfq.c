@@ -7,7 +7,7 @@
 static
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ) {
-		lmb();
+		//lmb(); // not needed, we don't care if loads reorder here, just that we check all the elements
 		if (ctx->HP[i] == lfn)
 			return 1;
 	}
@@ -19,7 +19,7 @@ void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	volatile struct lfq_node * p;
 	do {
 		p = ctx->fpt;
-	} while(!CAS(&ctx->fpt, p, lfn));
+	} while(!CAS(&ctx->fpt, p, lfn));  // exchange using CAS
 	p->free_next = lfn;
 }
 
@@ -143,12 +143,17 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 	if (!insert_node)
 		return -errno;
 	insert_node->data=data;
-	mb();
+//	mb();  // we've only written to "private" memory that other threads can't see.
 	do {
 		p = (struct lfq_node *) ctx->tail;
 	} while(!CAS(&ctx->tail,p,insert_node));
 	p->next = insert_node;
 	ATOMIC_ADD( &ctx->count, 1);
+	// We've claimed our spot in the insertion order by modifying tail
+	// we are the only inserting thread with a pointer to the old tail.
+
+	// now we can make it part of the list by overwriting the NULL pointer in the old tail
+	// This is safe whether or not other threads have updated ->next in our insert_node
 	return 0;
 }
 
@@ -169,7 +174,12 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 		}
 		assert(pn != (void*)-1 && "read an already-freed node");
 	} while( ! CAS(&ctx->head, p, pn) );
-	mb();
+//	mb();  // CAS is already a memory barrier, at least on x86.
+
+	// we've atomically advanced head, and we're the thread that won the race to claim a node
+	// We return the data from the *new* head.
+	// The list starts off with a dummy node, so the current head is always a node that's already been read.
+
 	ctx->HP[tid] = 0;
 	ret=pn->data;
 	pn->can_free= true;
