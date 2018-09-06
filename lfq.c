@@ -3,6 +3,7 @@
 #include <errno.h>
 #define MAXFREE 150
 
+static
 int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ) {
 		lmb();
@@ -20,6 +21,7 @@ void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	p->free_next = lfn;
 }
 
+static
 void free_pool(struct lfq_ctx *ctx, bool freeall ) {
 	if (!CAS(&ctx->is_freeing, 0, 1))
 		return; // this pool free is not support multithreading.
@@ -37,6 +39,7 @@ exit:
 	smb();
 }
 
+static
 void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	if (lfn->can_free && !inHP(ctx,lfn)) {
 		 // free is not thread safety
@@ -51,6 +54,7 @@ void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
 	free_pool(ctx, false);
 }
 
+static
 int alloc_tid(struct lfq_ctx *ctx) {
 	for (int i = 0; i < ctx->MAXHPSIZE; i++) 
 		if (ctx->tid_map[i] == 0) 
@@ -60,6 +64,7 @@ int alloc_tid(struct lfq_ctx *ctx) {
 	return -1;
 }
 
+static
 void free_tid(struct lfq_ctx *ctx, int tid) {
 	ctx->tid_map[tid]=0;
 }
