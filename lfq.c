@@ -1,6 +1,8 @@
 #include "cross-platform.h"
 #include "lfq.h"
+#ifdef DEBUG
 #include <assert.h>
+#endif
 #include <errno.h>
 #define MAXFREE 150
 
@@ -111,13 +113,7 @@ long lfg_count_freelist(const struct lfq_ctx *ctx) {
 		count++;
 		p = p->free_next;
 	}
-/*
-	while(pn = p->free_next) {
-		free(p);
-		p = pn;
-		count++;
-	}
-*/
+	
 	return count;
 }
 
@@ -167,7 +163,9 @@ int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
 
 	// now we can make it part of the list by overwriting the NULL pointer in the old tail
 	// This is safe whether or not other threads have updated ->next in our insert_node
+#ifdef DEBUG
 	assert(!(old_tail->next) && "old tail wasn't NULL");
+#endif
 	old_tail->next = insert_node;
 	// TODO: could a consumer thread could have freed the old tail?  no because that would leave head=NULL
 
@@ -192,7 +190,9 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 			ctx->HP[tid] = 0;
 			return 0;  // never remove the last node
 		}
+#ifdef DEBUG
 		assert(new_head != (void*)-1 && "read an already-freed node");
+#endif
 	} while( ! CAS(&ctx->head, old_head, new_head) );
 #else  // without HP[] stuff
 	do {
@@ -204,7 +204,9 @@ void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
 			// ctx->HP[tid] = 0;
 			return 0;  // never remove the last node
 		}
+#ifdef DEBUG
 		assert(new_head != (void*)-1 && "read an already-freed node");
+#endif
 	} while( !CAS(&ctx->head, old_head, new_head) );
 #endif
 //	mb();  // CAS is already a memory barrier, at least on x86.
