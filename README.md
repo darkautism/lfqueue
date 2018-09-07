@@ -2,6 +2,8 @@
 
 Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line code so it is easy to understand, best code for education ever!
 
+***Do not use these code in production***
+
 Support multiple comsumer and multiple producer at sametime.
 
 | Arch              | Build status | Test         |
@@ -211,13 +213,13 @@ There has many papers to resolve this problem:
 - [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Beta**
 - [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **Stable**
 
-### ABA problem?
-
-No, ABA problem will segement fault. But we won't.
-
 ### Free memory very slow in Visual studio
 
 Sorry, i have no idea why. Still finding problems in windows.
+
+### Contributions
+
+[pcordes](https://github.com/pcordes)
 
 ## License
 
