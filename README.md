@@ -211,6 +211,7 @@ There has many papers to resolve this problem:
 - Lock-Free Reference Counting
 - ABA-Prevention Tags
 - [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Beta**
+	- [Algorithm Paper](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.395.378&rep=rep1&type=pdf)
 - [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **Stable**
 
 ### Free memory very slow in Visual studio
