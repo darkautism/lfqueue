@@ -8,7 +8,7 @@ Support multiple comsumer and multiple producer at sametime.
 
 | Arch              | Build status | Test         |
 | ----------------- | ------------ | ------------ |
-| Linux             | [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)| 24 hr test passed |
+| Linux             | [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)| On testing |
 | Windows(msbuild)  | [![Build status](https://ci.appveyor.com/api/projects/status/yu04l5atf0j259kd?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-2puqk) | Not tested [Issue](#free-memory-very-slow-in-visual-studio) |
 | Windows(Mingw)    | [![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP) | Not tested |
 | Windows(MinGW64)  | [![Build status](https://ci.appveyor.com/api/projects/status/4457r35yh2x4f52d/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-4jybw/branch/HP) | Not tested |
