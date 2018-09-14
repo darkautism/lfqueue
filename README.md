@@ -150,28 +150,6 @@ Pop data from queue.
 
 ## Issues
 
-### Dequeue
-
-If you use your pointer many times when dequeue, the cpu Out-of-Order Execution and compiler optimization will cause your code unpredictable.
-
-The simple way is add a memory barrier after dequeue. You must add memory barrier befor you access return pointer.
-
-```c
-do {
-	ret = lfq_dequeue(ctx);
-	mb(); // asm mfence, win MemoryBarrier(), gcc __sync_synchronize()
-} while(ret == 0); // This pointer can be safe to use now.
-```
-
-This macro will do these thins. But this function will hang forever if cannot pop anything.
-
-If you wanna use thread yield or sleep to reduce CPU useage, please use original dequeue function.
-
-```c
-LFQ_MB_DEQUEUE(ctx, dequeue_return_data);
-```
-
-
 ### ENOMEM
 
 This lfqueue do not have size limit, so count your struct yourself.
