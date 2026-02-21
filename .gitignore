@@ -15,3 +15,6 @@ bin/
 *.a
 *.so
 *.so.*
+
+# CodeQL artifacts
+_codeql_detected_source_root
