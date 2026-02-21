@@ -8,3 +8,10 @@
 /Visual Stdio/.vs/lfqueue/v14
 /Visual Stdio/Release
 /Visual Stdio/Debug
+
+# Build artifacts
+bin/
+*.o
+*.a
+*.so
+*.so.*

@@ -91,14 +91,16 @@ int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
 		return -errno;
 		
 	struct lfq_node * free_pool_node = calloc(1,sizeof(struct lfq_node));
-	if (!free_pool_node) 
+	if (!free_pool_node) {
+		free(tmpnode);
 		return -errno;
+	}
 		
 	tmpnode->can_free = free_pool_node->can_free = true;
 	memset(ctx, 0, sizeof(struct lfq_ctx));
 	ctx->MAXHPSIZE = max_consume_thread;
-	ctx->HP = calloc(max_consume_thread,sizeof(struct lfq_node));
-	ctx->tid_map = calloc(max_consume_thread,sizeof(struct lfq_node));
+	ctx->HP = calloc(max_consume_thread,sizeof(struct lfq_node *));
+	ctx->tid_map = calloc(max_consume_thread,sizeof(int));
 	ctx->head = ctx->tail=tmpnode;
 	ctx->fph = ctx->fpt=free_pool_node;
 	
