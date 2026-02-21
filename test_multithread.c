@@ -59,7 +59,7 @@ THREAD_FN addq( void * data ) {
 THREAD_FN delq(void * data) {
 	struct lfq_ctx * ctx = data;
 	struct user_data * p;
-	int tid = ATOMIC_ADD(&cn_t, 1);
+	int tid = ATOMIC_ADD(&cn_t, 1) - 1;
 
 	long deleted = 0;
 	while(1) {

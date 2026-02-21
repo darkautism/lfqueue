@@ -8,3 +8,13 @@
 /Visual Stdio/.vs/lfqueue/v14
 /Visual Stdio/Release
 /Visual Stdio/Debug
+
+# Build artifacts
+bin/
+*.o
+*.a
+*.so
+*.so.*
+
+# CodeQL artifacts
+_codeql_detected_source_root
