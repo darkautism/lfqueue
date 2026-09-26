@@ -51,16 +51,20 @@ static int affinity_cpu_for_role(int consumer) {
         return -1;
 
     int first = -1;
+#if LFQ_AFFINITY_MODE == 2
     int second = -1;
+#endif
     for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
         if (!CPU_ISSET(cpu, &allowed))
             continue;
-        if (first < 0)
+        if (first < 0) {
             first = cpu;
-        else {
-            second = cpu;
-            break;
+            continue;
         }
+#if LFQ_AFFINITY_MODE == 2
+        second = cpu;
+#endif
+        break;
     }
 
     if (first < 0)
@@ -69,6 +73,8 @@ static int affinity_cpu_for_role(int consumer) {
 #if LFQ_AFFINITY_MODE == 2
     if (consumer && second >= 0)
         return second;
+#else
+    (void)consumer;
 #endif
     return first;
 }

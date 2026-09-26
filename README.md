@@ -151,7 +151,18 @@ cleanup of non-empty queues, and post-clean behavior.
 
 `test_multithread.c`
 runs MPMC producer/consumer matrices and verifies both item count and a
-cross-thread checksum.
+cross-thread checksum.  Dedicated affinity builds also force all producers and
+consumers onto one CPU (heavy preemption/time-slicing) and split producers vs.
+consumers across two CPUs (cache-line migration / SMP ordering pressure).
+
+`test_scheduler.c`
+uses test-only hook points plus condition variables to force exact interleavings.
+All deterministic actors are pinned to the same allowed CPU so the test parks a
+thread at a known lock-free algorithm step and lets another thread run on that
+same CPU.  Regression cases cover completed-enqueue visibility, consumer hazard
+protection during forced reclamation, stale producer tails, cleanup racing with
+an active operation, and the cleanup lifecycle gate.  These tests do not rely on
+`sched_yield()` luck.
 
 `test_aba.c`
 stresses rapid node retirement/reuse.  It is paired with sanitizer CI; a passing
