@@ -59,4 +59,4 @@ jobs:
           bin\test_aba.exe
       - name: Build Visual Studio solution
         shell: cmd
-        run: msbuild "Visual Stdio\lfqueue.sln" /m /p:Configuration=Release /p:Platform=x64
+        run: msbuild "Visual Stdio\lfqueue.sln" /m /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v145
