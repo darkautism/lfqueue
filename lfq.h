@@ -13,15 +13,18 @@ struct lfq_node {
     struct lfq_node *retired_next;
 };
 
+struct lfq_producer_hp;
+
 struct lfq_ctx {
-    LFQ_ALIGNAS(64) struct lfq_node * volatile head;
-    LFQ_ALIGNAS(64) struct lfq_node * volatile tail;
+    struct lfq_node * volatile head;
+    struct lfq_node * volatile tail;
 
     struct lfq_node * volatile retired_head;
     lfq_atomic_int_t retired_count;
     lfq_atomic_int_t reclaiming;
-    /* Prevent reclamation while a producer may hold a stale local tail. */
-    lfq_atomic_int_t active_enqueues;
+
+    /* Dynamically-grown producer hazard records; records live until clean(). */
+    struct lfq_producer_hp * volatile producer_hps;
 
     struct lfq_node * volatile *HP;
     lfq_atomic_int_t *tid_map;

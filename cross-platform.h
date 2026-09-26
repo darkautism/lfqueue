@@ -41,24 +41,24 @@ static __forceinline bool lfq_atomic_cas_ptr(void * volatile *ptr, void **expect
     return false;
 }
 
-static __forceinline LONG lfq_atomic_load_int(lfq_atomic_int_t *ptr) {
-    return InterlockedCompareExchange((volatile LONG *)ptr, 0, 0);
+static __forceinline int lfq_atomic_load_int(lfq_atomic_int_t *ptr) {
+    return (int)InterlockedCompareExchange((volatile LONG *)ptr, 0, 0);
 }
 
-static __forceinline void lfq_atomic_store_int(lfq_atomic_int_t *ptr, LONG value) {
-    (void)InterlockedExchange((volatile LONG *)ptr, value);
+static __forceinline void lfq_atomic_store_int(lfq_atomic_int_t *ptr, int value) {
+    (void)InterlockedExchange((volatile LONG *)ptr, (LONG)value);
 }
 
-static __forceinline bool lfq_atomic_cas_int(lfq_atomic_int_t *ptr, LONG *expected, LONG desired) {
-    LONG actual = InterlockedCompareExchange((volatile LONG *)ptr, desired, *expected);
-    if (actual == *expected)
+static __forceinline bool lfq_atomic_cas_int(lfq_atomic_int_t *ptr, int *expected, int desired) {
+    LONG actual = InterlockedCompareExchange((volatile LONG *)ptr, (LONG)desired, (LONG)*expected);
+    if (actual == (LONG)*expected)
         return true;
-    *expected = actual;
+    *expected = (int)actual;
     return false;
 }
 
-static __forceinline LONG lfq_atomic_fetch_add_int(lfq_atomic_int_t *ptr, LONG value) {
-    return InterlockedExchangeAdd((volatile LONG *)ptr, value);
+static __forceinline int lfq_atomic_fetch_add_int(lfq_atomic_int_t *ptr, int value) {
+    return (int)InterlockedExchangeAdd((volatile LONG *)ptr, (LONG)value);
 }
 
 #define LFQ_ALIGNAS(n) __declspec(align(n))

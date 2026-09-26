@@ -7,6 +7,12 @@
 #define LFQ_RECLAIM_MIN 32
 #define LFQ_OP_CLOSING 0x40000000
 
+struct lfq_producer_hp {
+    struct lfq_node * volatile hazard;
+    lfq_atomic_int_t in_use;
+    struct lfq_producer_hp *next;
+};
+
 static struct lfq_node *atomic_load_node(struct lfq_node * volatile *ptr) {
     return (struct lfq_node *)lfq_atomic_load_ptr((void * volatile *)ptr);
 }
@@ -27,6 +33,40 @@ static bool atomic_cas_node(struct lfq_node * volatile *ptr,
     bool ok = lfq_atomic_cas_ptr((void * volatile *)ptr, &raw_expected, desired);
     *expected = (struct lfq_node *)raw_expected;
     return ok;
+}
+
+static struct lfq_producer_hp *producer_hp_acquire(struct lfq_ctx *ctx) {
+    struct lfq_producer_hp *record =
+        (struct lfq_producer_hp *)lfq_atomic_load_ptr((void * volatile *)&ctx->producer_hps);
+
+    for (; record; record = record->next) {
+        int expected = 0;
+        if (lfq_atomic_cas_int(&record->in_use, &expected, 1)) {
+            lfq_atomic_store_ptr((void * volatile *)&record->hazard, NULL);
+            return record;
+        }
+    }
+
+    record = (struct lfq_producer_hp *)calloc(1, sizeof(*record));
+    if (!record)
+        return NULL;
+
+    lfq_atomic_store_ptr((void * volatile *)&record->hazard, NULL);
+    lfq_atomic_store_int(&record->in_use, 1);
+
+    for (;;) {
+        struct lfq_producer_hp *old =
+            (struct lfq_producer_hp *)lfq_atomic_load_ptr((void * volatile *)&ctx->producer_hps);
+        record->next = old;
+        void *expected = old;
+        if (lfq_atomic_cas_ptr((void * volatile *)&ctx->producer_hps, &expected, record))
+            return record;
+    }
+}
+
+static void producer_hp_release(struct lfq_producer_hp *record) {
+    lfq_atomic_store_ptr((void * volatile *)&record->hazard, NULL);
+    lfq_atomic_store_int(&record->in_use, 0);
 }
 
 static int begin_op(struct lfq_ctx *ctx) {
@@ -80,6 +120,14 @@ static bool node_is_hazard(const struct lfq_ctx *ctx, const struct lfq_node *nod
         if (hp_load(ctx, i) == node)
             return true;
     }
+
+    struct lfq_producer_hp *record =
+        (struct lfq_producer_hp *)lfq_atomic_load_ptr((void * volatile *)&ctx->producer_hps);
+    for (; record; record = record->next) {
+        if ((struct lfq_node *)lfq_atomic_load_ptr((void * volatile *)&record->hazard) == node)
+            return true;
+    }
+
     return false;
 }
 
@@ -110,45 +158,43 @@ static void try_reclaim(struct lfq_ctx *ctx, bool force) {
     if (!lfq_atomic_cas_int(&ctx->reclaiming, &expected, 1))
         return;
 
-    /*
-     * Producers dereference a local tail pointer.  A producer that loaded an
-     * old tail before another thread advanced it does not have a hazard slot,
-     * so reclamation must wait until all producers have left their queue
-     * traversal.  A producer starting after this check can only load the
-     * current global tail, which is never on the retired list detached below.
-     */
-    if (!force && lfq_atomic_load_int(&ctx->active_enqueues) != 0) {
+    int threshold = ctx->MAXHPSIZE * LFQ_HAZARDS_PER_THREAD * 2;
+    if (threshold < LFQ_RECLAIM_MIN)
+        threshold = LFQ_RECLAIM_MIN;
+
+    if (!force && lfq_atomic_load_int(&ctx->retired_count) < threshold) {
         lfq_atomic_store_int(&ctx->reclaiming, 0);
         return;
     }
 
-    if (!force) {
-        int threshold = ctx->MAXHPSIZE * LFQ_HAZARDS_PER_THREAD * 2;
-        if (threshold < LFQ_RECLAIM_MIN)
-            threshold = LFQ_RECLAIM_MIN;
+    /*
+     * A long scan can overlap many new retirements.  Drain a few snapshots in
+     * one ownership period so the last operations in a burst do not leave a
+     * large retired list merely because they lost the reclaimer CAS.
+     */
+    for (int pass = 0; pass < 4; ++pass) {
+        struct lfq_node *list = atomic_exchange_node(&ctx->retired_head, NULL);
+        if (!list)
+            break;
 
-        if (lfq_atomic_load_int(&ctx->retired_count) < threshold) {
-            lfq_atomic_store_int(&ctx->reclaiming, 0);
-            return;
+        int freed = 0;
+        while (list) {
+            struct lfq_node *next = list->retired_next;
+            if (node_is_hazard(ctx, list)) {
+                retired_requeue(ctx, list);
+            } else {
+                free(list);
+                ++freed;
+            }
+            list = next;
         }
+
+        if (freed)
+            (void)lfq_atomic_fetch_add_int(&ctx->retired_count, -freed);
+
+        if (!force && lfq_atomic_load_int(&ctx->retired_count) < threshold)
+            break;
     }
-
-    struct lfq_node *list = atomic_exchange_node(&ctx->retired_head, NULL);
-    int freed = 0;
-
-    while (list) {
-        struct lfq_node *next = list->retired_next;
-        if (node_is_hazard(ctx, list)) {
-            retired_requeue(ctx, list);
-        } else {
-            free(list);
-            ++freed;
-        }
-        list = next;
-    }
-
-    if (freed)
-        (void)lfq_atomic_fetch_add_int(&ctx->retired_count, -freed);
 
     lfq_atomic_store_int(&ctx->reclaiming, 0);
 }
@@ -267,9 +313,9 @@ int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
     atomic_store_node(&ctx->head, dummy);
     atomic_store_node(&ctx->tail, dummy);
     atomic_store_node(&ctx->retired_head, NULL);
+    lfq_atomic_store_ptr((void * volatile *)&ctx->producer_hps, NULL);
     lfq_atomic_store_int(&ctx->retired_count, 0);
     lfq_atomic_store_int(&ctx->reclaiming, 0);
-    lfq_atomic_store_int(&ctx->active_enqueues, 0);
     lfq_atomic_store_int(&ctx->op_state, 0);
 
     return 0;
@@ -317,6 +363,15 @@ int lfq_clean(struct lfq_ctx *ctx) {
         node = next;
     }
 
+    struct lfq_producer_hp *producer_hp =
+        (struct lfq_producer_hp *)lfq_atomic_exchange_ptr(
+            (void * volatile *)&ctx->producer_hps, NULL);
+    while (producer_hp) {
+        struct lfq_producer_hp *next = producer_hp->next;
+        free(producer_hp);
+        producer_hp = next;
+    }
+
     free((void *)ctx->HP);
     free((void *)ctx->tid_map);
     memset(ctx, 0, sizeof(*ctx));
@@ -341,21 +396,25 @@ int lfq_enqueue(struct lfq_ctx *ctx, void *data) {
     node->retired_next = NULL;
     atomic_store_node(&node->next, NULL);
 
-    /*
-     * Hold the producer epoch before loading tail.  Reclamation may proceed
-     * concurrently with producers that start later, but it must not free a
-     * node referenced by an already-running producer's stale local tail.
-     */
-    (void)lfq_atomic_fetch_add_int(&ctx->active_enqueues, 1);
+    struct lfq_producer_hp *producer_hp = producer_hp_acquire(ctx);
+    if (!producer_hp) {
+        free(node);
+        end_op(ctx);
+        return -ENOMEM;
+    }
 
     for (;;) {
         struct lfq_node *tail = atomic_load_node(&ctx->tail);
         if (!tail) {
-            (void)lfq_atomic_fetch_add_int(&ctx->active_enqueues, -1);
+            producer_hp_release(producer_hp);
             free(node);
             end_op(ctx);
             return -EINVAL;
         }
+
+        lfq_atomic_store_ptr((void * volatile *)&producer_hp->hazard, tail);
+        if (tail != atomic_load_node(&ctx->tail))
+            continue;
 
         struct lfq_node *next = atomic_load_node(&tail->next);
         if (tail != atomic_load_node(&ctx->tail))
@@ -371,7 +430,8 @@ int lfq_enqueue(struct lfq_ctx *ctx, void *data) {
                  */
                 struct lfq_node *expected_tail = tail;
                 (void)atomic_cas_node(&ctx->tail, &expected_tail, node);
-                (void)lfq_atomic_fetch_add_int(&ctx->active_enqueues, -1);
+                producer_hp_release(producer_hp);
+                try_reclaim(ctx, false);
                 end_op(ctx);
                 return 0;
             }

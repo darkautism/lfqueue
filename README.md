@@ -16,6 +16,8 @@ The queue uses the Michael-Scott linked-queue protocol:
 - lagging `tail` pointers are helped forward by producers and consumers;
 - dequeue protects both the current dummy head and its successor with two Hazard
   Pointers before dereferencing them;
+- each producer acquires a dynamically-grown Hazard Pointer record before
+  dereferencing a local tail, so a stale producer tail cannot be reclaimed;
 - removed dummy nodes go to a separate retired list.  The retired-list link is
   **not** overlaid on the queue's `next` field, so a hazard-protected node remains
   immutable until no reader can reference it;
