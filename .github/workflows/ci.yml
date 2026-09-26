@@ -6,16 +6,54 @@ on:
   pull_request:
     branches: [ "HP" ]
 
+permissions:
+  contents: read
+
 jobs:
-  build:
-
+  linux:
+    name: Linux (${{ matrix.cc }})
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
     steps:
-    - uses: actions/checkout@v4
-    - name: make
-      run: make
-    - name: make test
-      run: make test
+      - uses: actions/checkout@v6
+      - name: Build and test
+        run: make clean test
+
+  sanitizers:
+    name: Sanitizers
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+    steps:
+      - uses: actions/checkout@v6
+      - name: Address + UndefinedBehavior Sanitizer
+        run: make clean test-sanitize
+      - name: ThreadSanitizer
+        run: make clean test-tsan
+
+  windows:
+    name: Windows MSVC
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build
+        shell: cmd
+        run: |
+          if not exist bin mkdir bin
+          cl /nologo /W4 /WX /O2 /TC lfq.c test_edge_cases.c /Fe:bin\test_edge_cases.exe
+          cl /nologo /W4 /WX /O2 /TC lfq.c test_multithread.c /DMAX_PRODUCER=4 /DMAX_CONSUMER=4 /DITEMS_PER_PRODUCER=5000 /Fe:bin\test_multithread.exe
+          cl /nologo /W4 /WX /O2 /TC lfq.c test_aba.c /DABA_THREADS=8 /DABA_ITERATIONS=5000 /Fe:bin\test_aba.exe
+      - name: Test
+        shell: cmd
+        run: |
+          bin\test_edge_cases.exe
+          bin\test_multithread.exe
+          bin\test_aba.exe

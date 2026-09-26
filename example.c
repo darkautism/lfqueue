@@ -1,21 +1,37 @@
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
+
 #include "lfq.h"
 
-int main() {
-	long ret;
-	struct lfq_ctx ctx;
-	lfq_init(&ctx, 1);
-	lfq_enqueue(&ctx,(void *)1);
-	lfq_enqueue(&ctx,(void *)3);
-	lfq_enqueue(&ctx,(void *)5);
-	lfq_enqueue(&ctx,(void *)8);
-	lfq_enqueue(&ctx,(void *)4);
-	lfq_enqueue(&ctx,(void *)6);
-	
-	while ( (ret = (long)lfq_dequeue(&ctx)) != 0 )
-		printf("lfq_dequeue %ld\n", ret);
-	
-	lfq_clean(&ctx);
-	return 0;
+int main(void) {
+    struct lfq_ctx ctx;
+
+    if (lfq_init(&ctx, 0) != 0) {
+        fprintf(stderr, "lfq_init failed\n");
+        return 1;
+    }
+
+    const uintptr_t values[] = {1, 3, 5, 8, 4, 6};
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); ++i) {
+        if (lfq_enqueue(&ctx, (void *)values[i]) != 0) {
+            fprintf(stderr, "lfq_enqueue failed\n");
+            lfq_clean(&ctx);
+            return 1;
+        }
+    }
+
+    for (;;) {
+        void *item = lfq_dequeue(&ctx);
+        if (item == NULL)
+            break;
+        if (item == LFQ_ERROR) {
+            fprintf(stderr, "lfq_dequeue failed\n");
+            lfq_clean(&ctx);
+            return 1;
+        }
+        printf("lfq_dequeue %" PRIuPTR "\n", (uintptr_t)item);
+    }
+
+    return lfq_clean(&ctx) == 0 ? 0 : 1;
 }

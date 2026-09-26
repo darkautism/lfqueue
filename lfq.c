@@ -1,244 +1,445 @@
 #include "cross-platform.h"
 #include "lfq.h"
-#ifdef DEBUG
-#include <assert.h>
-#endif
+
 #include <errno.h>
-#define MAXFREE 150
+#include <stddef.h>
 
-static
-int inHP(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	for ( int i = 0 ; i < ctx->MAXHPSIZE ; i++ ) {
-		//lmb(); // not needed, we don't care if loads reorder here, just that we check all the elements
-		if (ctx->HP[i] == lfn)
-			return 1;
-	}
-	return 0;
+#define LFQ_RECLAIM_MIN 32
+#define LFQ_OP_CLOSING 0x40000000
+
+static struct lfq_node *atomic_load_node(struct lfq_node * volatile *ptr) {
+    return (struct lfq_node *)lfq_atomic_load_ptr((void * volatile *)ptr);
 }
 
-static
-void enpool(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	// add to tail of the free list
-	lfn->free_next = NULL;
-	volatile struct lfq_node *old_tail = XCHG(&ctx->fpt, lfn);  // seq_cst
-	old_tail->free_next = lfn;
-
-	// getting nodes out of this will have exactly the same deallocation problem
-	// as the main queue.
-	// TODO: a stack might be easier to manage, but would increase contention.
-
-/*
-	volatile struct lfq_node * p;
-	do {
-		p = ctx->fpt;
-	} while(!CAS(&ctx->fpt, p, lfn));  // exchange using CAS
-	p->free_next = lfn;
-*/
+static void atomic_store_node(struct lfq_node * volatile *ptr, struct lfq_node *value) {
+    lfq_atomic_store_ptr((void * volatile *)ptr, value);
 }
 
-static
-void free_pool(struct lfq_ctx *ctx, bool freeall ) {
-	if (!CAS(&ctx->is_freeing, 0, 1))
-		return; // this pool free is not support multithreading.
-	volatile struct lfq_node * p;
-
-	for ( int i = 0 ; i < MAXFREE || freeall ; i++ ) {
-		p = ctx->fph;
-		if ( (!p->can_free) || (!p->free_next) || inHP(ctx, (struct lfq_node *)p) )
-			goto exit;
-		ctx->fph = p->free_next;
-		free((void *)p);
-	}
-exit:
-	ctx->is_freeing = false;
-	smb();
+static struct lfq_node *atomic_exchange_node(struct lfq_node * volatile *ptr,
+                                             struct lfq_node *value) {
+    return (struct lfq_node *)lfq_atomic_exchange_ptr((void * volatile *)ptr, value);
 }
 
-static
-void safe_free(struct lfq_ctx *ctx, struct lfq_node * lfn) {
-	if (lfn->can_free && !inHP(ctx,lfn)) {
-		// free is not thread-safe
-		if (CAS(&ctx->is_freeing, 0, 1)) {
-			lfn->next = (void*)-1;    // poison the pointer to detect use-after-free
-			free(lfn);    // we got the lock; actually free
-			ctx->is_freeing = false;
-			smb();
-		} else               // we didn't get the lock; only add to a freelist
-			enpool(ctx, lfn);
-	} else
-		enpool(ctx, lfn);
-	free_pool(ctx, false);
+static bool atomic_cas_node(struct lfq_node * volatile *ptr,
+                            struct lfq_node **expected,
+                            struct lfq_node *desired) {
+    void *raw_expected = *expected;
+    bool ok = lfq_atomic_cas_ptr((void * volatile *)ptr, &raw_expected, desired);
+    *expected = (struct lfq_node *)raw_expected;
+    return ok;
 }
 
-static
-int alloc_tid(struct lfq_ctx *ctx) {
-	for (int i = 0; i < ctx->MAXHPSIZE; i++) 
-		if (ctx->tid_map[i] == 0) 
-			if (CAS(&ctx->tid_map[i], 0, 1))
-				return i;
+static int begin_op(struct lfq_ctx *ctx) {
+    if (!ctx)
+        return -EINVAL;
 
-	return -1;
+    for (;;) {
+        int state = lfq_atomic_load_int(&ctx->op_state);
+        if (state & LFQ_OP_CLOSING)
+            return -EBUSY;
+        if ((state & ~LFQ_OP_CLOSING) == LFQ_OP_CLOSING - 1)
+            return -EOVERFLOW;
+
+        int expected = state;
+        if (lfq_atomic_cas_int(&ctx->op_state, &expected, state + 1))
+            break;
+    }
+
+    if (!ctx->HP || !ctx->tid_map || !atomic_load_node(&ctx->head)) {
+        (void)lfq_atomic_fetch_add_int(&ctx->op_state, -1);
+        return -EINVAL;
+    }
+    return 0;
 }
 
-static
-void free_tid(struct lfq_ctx *ctx, int tid) {
-	ctx->tid_map[tid]=0;
+static void end_op(struct lfq_ctx *ctx) {
+    (void)lfq_atomic_fetch_add_int(&ctx->op_state, -1);
+}
+
+static size_t hazard_slot_count(const struct lfq_ctx *ctx) {
+    return (size_t)ctx->MAXHPSIZE * LFQ_HAZARDS_PER_THREAD;
+}
+
+static void hp_store(struct lfq_ctx *ctx, int tid, int slot, struct lfq_node *node) {
+    size_t index = (size_t)tid * LFQ_HAZARDS_PER_THREAD + (size_t)slot;
+    lfq_atomic_store_ptr((void * volatile *)&ctx->HP[index], node);
+}
+
+static struct lfq_node *hp_load(const struct lfq_ctx *ctx, size_t index) {
+    return (struct lfq_node *)lfq_atomic_load_ptr((void * volatile *)&ctx->HP[index]);
+}
+
+static void hp_clear_pair(struct lfq_ctx *ctx, int tid) {
+    hp_store(ctx, tid, 0, NULL);
+    hp_store(ctx, tid, 1, NULL);
+}
+
+static bool node_is_hazard(const struct lfq_ctx *ctx, const struct lfq_node *node) {
+    size_t count = hazard_slot_count(ctx);
+    for (size_t i = 0; i < count; ++i) {
+        if (hp_load(ctx, i) == node)
+            return true;
+    }
+    return false;
+}
+
+static void retired_push(struct lfq_ctx *ctx, struct lfq_node *node) {
+    /*
+     * Count before publication so a concurrent reclaimer never frees a node
+     * that has not yet been included in retired_count.
+     */
+    (void)lfq_atomic_fetch_add_int(&ctx->retired_count, 1);
+
+    struct lfq_node *old;
+    do {
+        old = atomic_load_node(&ctx->retired_head);
+        node->retired_next = old;
+    } while (!atomic_cas_node(&ctx->retired_head, &old, node));
+}
+
+static void retired_requeue(struct lfq_ctx *ctx, struct lfq_node *node) {
+    struct lfq_node *old;
+    do {
+        old = atomic_load_node(&ctx->retired_head);
+        node->retired_next = old;
+    } while (!atomic_cas_node(&ctx->retired_head, &old, node));
+}
+
+static void try_reclaim(struct lfq_ctx *ctx, bool force) {
+    int expected = 0;
+    if (!lfq_atomic_cas_int(&ctx->reclaiming, &expected, 1))
+        return;
+
+    /*
+     * Producers dereference a local tail pointer.  A producer that loaded an
+     * old tail before another thread advanced it does not have a hazard slot,
+     * so reclamation must wait until all producers have left their queue
+     * traversal.  A producer starting after this check can only load the
+     * current global tail, which is never on the retired list detached below.
+     */
+    if (!force && lfq_atomic_load_int(&ctx->active_enqueues) != 0) {
+        lfq_atomic_store_int(&ctx->reclaiming, 0);
+        return;
+    }
+
+    if (!force) {
+        int threshold = ctx->MAXHPSIZE * LFQ_HAZARDS_PER_THREAD * 2;
+        if (threshold < LFQ_RECLAIM_MIN)
+            threshold = LFQ_RECLAIM_MIN;
+
+        if (lfq_atomic_load_int(&ctx->retired_count) < threshold) {
+            lfq_atomic_store_int(&ctx->reclaiming, 0);
+            return;
+        }
+    }
+
+    struct lfq_node *list = atomic_exchange_node(&ctx->retired_head, NULL);
+    int freed = 0;
+
+    while (list) {
+        struct lfq_node *next = list->retired_next;
+        if (node_is_hazard(ctx, list)) {
+            retired_requeue(ctx, list);
+        } else {
+            free(list);
+            ++freed;
+        }
+        list = next;
+    }
+
+    if (freed)
+        (void)lfq_atomic_fetch_add_int(&ctx->retired_count, -freed);
+
+    lfq_atomic_store_int(&ctx->reclaiming, 0);
+}
+
+static int acquire_tid(struct lfq_ctx *ctx, int requested_tid) {
+    if (requested_tid >= 0) {
+        if (requested_tid >= ctx->MAXHPSIZE)
+            return -EINVAL;
+
+        int expected = 0;
+        if (!lfq_atomic_cas_int(&ctx->tid_map[requested_tid], &expected, 1))
+            return -EBUSY;
+        return requested_tid;
+    }
+
+    for (int i = 0; i < ctx->MAXHPSIZE; ++i) {
+        int expected = 0;
+        if (lfq_atomic_cas_int(&ctx->tid_map[i], &expected, 1))
+            return i;
+    }
+    return -EAGAIN;
+}
+
+static void release_tid(struct lfq_ctx *ctx, int tid) {
+    hp_clear_pair(ctx, tid);
+    lfq_atomic_store_int(&ctx->tid_map[tid], 0);
+}
+
+static int dequeue_reserved(struct lfq_ctx *ctx, int tid, void **out) {
+    for (;;) {
+        struct lfq_node *head = atomic_load_node(&ctx->head);
+        if (!head)
+            return -EINVAL;
+
+        hp_store(ctx, tid, 0, head);
+        if (head != atomic_load_node(&ctx->head))
+            continue;
+
+        struct lfq_node *tail = atomic_load_node(&ctx->tail);
+        struct lfq_node *next = atomic_load_node(&head->next);
+
+        if (!next) {
+            hp_clear_pair(ctx, tid);
+            *out = NULL;
+            return 0;
+        }
+
+        hp_store(ctx, tid, 1, next);
+
+        if (head != atomic_load_node(&ctx->head) ||
+            next != atomic_load_node(&head->next)) {
+            hp_clear_pair(ctx, tid);
+            continue;
+        }
+
+        if (head == tail) {
+            struct lfq_node *expected_tail = tail;
+            (void)atomic_cas_node(&ctx->tail, &expected_tail, next);
+            hp_clear_pair(ctx, tid);
+            continue;
+        }
+
+        void *value = next->data;
+        struct lfq_node *expected_head = head;
+        if (!atomic_cas_node(&ctx->head, &expected_head, next)) {
+            hp_clear_pair(ctx, tid);
+            continue;
+        }
+
+        /*
+         * Keep our hazards published while putting the removed dummy on the
+         * retired list.  Only after publication is it safe to drop them.
+         */
+        retired_push(ctx, head);
+        hp_clear_pair(ctx, tid);
+        try_reclaim(ctx, false);
+
+        *out = value;
+        return 1;
+    }
 }
 
 int lfq_init(struct lfq_ctx *ctx, int max_consume_thread) {
-	struct lfq_node * tmpnode = calloc(1,sizeof(struct lfq_node));
-	if (!tmpnode) 
-		return -errno;
-		
-	struct lfq_node * free_pool_node = calloc(1,sizeof(struct lfq_node));
-	if (!free_pool_node) {
-		free(tmpnode);
-		return -errno;
-	}
-		
-	tmpnode->can_free = free_pool_node->can_free = true;
-	memset(ctx, 0, sizeof(struct lfq_ctx));
-	ctx->MAXHPSIZE = max_consume_thread;
-	ctx->HP = calloc(max_consume_thread,sizeof(struct lfq_node *));
-	ctx->tid_map = calloc(max_consume_thread,sizeof(int));
-	ctx->head = ctx->tail=tmpnode;
-	ctx->fph = ctx->fpt=free_pool_node;
-	
-	return 0;
-}
+    if (!ctx)
+        return -EINVAL;
 
+    if (max_consume_thread == 0)
+        max_consume_thread = LFQ_DEFAULT_MAX_CONSUMERS;
+    if (max_consume_thread < 0)
+        return -EINVAL;
+
+    memset(ctx, 0, sizeof(*ctx));
+
+    struct lfq_node *dummy = (struct lfq_node *)calloc(1, sizeof(*dummy));
+    if (!dummy)
+        return -ENOMEM;
+
+    size_t hp_count = (size_t)max_consume_thread * LFQ_HAZARDS_PER_THREAD;
+    if (hp_count / LFQ_HAZARDS_PER_THREAD != (size_t)max_consume_thread) {
+        free(dummy);
+        return -EINVAL;
+    }
+
+    ctx->HP = (struct lfq_node * volatile *)calloc(hp_count, sizeof(*ctx->HP));
+    ctx->tid_map = (lfq_atomic_int_t *)calloc((size_t)max_consume_thread, sizeof(*ctx->tid_map));
+    if (!ctx->HP || !ctx->tid_map) {
+        free((void *)ctx->HP);
+        free((void *)ctx->tid_map);
+        free(dummy);
+        memset(ctx, 0, sizeof(*ctx));
+        return -ENOMEM;
+    }
+
+    ctx->MAXHPSIZE = max_consume_thread;
+    atomic_store_node(&dummy->next, NULL);
+    atomic_store_node(&ctx->head, dummy);
+    atomic_store_node(&ctx->tail, dummy);
+    atomic_store_node(&ctx->retired_head, NULL);
+    lfq_atomic_store_int(&ctx->retired_count, 0);
+    lfq_atomic_store_int(&ctx->reclaiming, 0);
+    lfq_atomic_store_int(&ctx->active_enqueues, 0);
+    lfq_atomic_store_int(&ctx->op_state, 0);
+
+    return 0;
+}
 
 long lfg_count_freelist(const struct lfq_ctx *ctx) {
-	long count=0;
-	struct lfq_node *p = (struct lfq_node *)ctx->fph; // non-volatile
-	while(p) {
-		count++;
-		p = p->free_next;
-	}
-	
-	return count;
+    if (!ctx)
+        return 0;
+    return (long)lfq_atomic_load_int((lfq_atomic_int_t *)&ctx->retired_count);
 }
 
-int lfq_clean(struct lfq_ctx *ctx){
-	if ( ctx->tail && ctx->head ) { // if have data in queue
-		struct lfq_node *tmp;
-		while ( (struct lfq_node *) ctx->head ) { // while still have node
-			tmp = (struct lfq_node *) ctx->head->next;
-			safe_free(ctx, (struct lfq_node *)ctx->head);
-			ctx->head = tmp;
-		}
-		ctx->tail = 0;
-	}
-	if ( ctx->fph && ctx->fpt ) {
-		free_pool(ctx, true);
-		if ( ctx->fph != ctx->fpt )
-			return -1;
-		free((void *)ctx->fpt); // free the empty node
-		ctx->fph=ctx->fpt=0;
-	}
-	if ( !ctx->fph && !ctx->fpt ) {
-		free((void *)ctx->HP);
-		free((void *)ctx->tid_map);
-		memset(ctx,0,sizeof(struct lfq_ctx));
-	} else
-		return -1;
-		
-	return 0;
+int lfq_clean(struct lfq_ctx *ctx) {
+    if (!ctx)
+        return -EINVAL;
+
+    int expected = 0;
+    if (!lfq_atomic_cas_int(&ctx->op_state, &expected, LFQ_OP_CLOSING))
+        return -EBUSY;
+
+    if (!ctx->HP && !ctx->tid_map && !atomic_load_node(&ctx->head)) {
+        memset(ctx, 0, sizeof(*ctx));
+        return 0;
+    }
+
+    for (int i = 0; i < ctx->MAXHPSIZE; ++i) {
+        if (lfq_atomic_load_int(&ctx->tid_map[i]) != 0) {
+            lfq_atomic_store_int(&ctx->op_state, 0);
+            return -EBUSY;
+        }
+    }
+
+    struct lfq_node *node = atomic_exchange_node(&ctx->head, NULL);
+    atomic_store_node(&ctx->tail, NULL);
+
+    while (node) {
+        struct lfq_node *next = atomic_load_node(&node->next);
+        free(node);
+        node = next;
+    }
+
+    node = atomic_exchange_node(&ctx->retired_head, NULL);
+    while (node) {
+        struct lfq_node *next = node->retired_next;
+        free(node);
+        node = next;
+    }
+
+    free((void *)ctx->HP);
+    free((void *)ctx->tid_map);
+    memset(ctx, 0, sizeof(*ctx));
+    return 0;
 }
 
-int lfq_enqueue(struct lfq_ctx *ctx, void * data) {
-	struct lfq_node * insert_node = calloc(1,sizeof(struct lfq_node));
-	if (!insert_node)
-		return -errno;
-	insert_node->data=data;
-//	mb();  // we've only written to "private" memory that other threads can't see.
-	volatile struct lfq_node *old_tail;
-#if 0
-	do {
-		old_tail = (struct lfq_node *) ctx->tail;
-	} while(!CAS(&ctx->tail,old_tail,insert_node));
-#else
-	old_tail = XCHG(&ctx->tail, insert_node);
-#endif
-	// We've claimed our spot in the insertion order by modifying tail
-	// we are the only inserting thread with a pointer to the old tail.
+int lfq_enqueue(struct lfq_ctx *ctx, void *data) {
+    if (!data || data == LFQ_ERROR)
+        return -EINVAL;
 
-	// now we can make it part of the list by overwriting the NULL pointer in the old tail
-	// This is safe whether or not other threads have updated ->next in our insert_node
-#ifdef DEBUG
-	assert(!(old_tail->next) && "old tail wasn't NULL");
-#endif
-	old_tail->next = insert_node;
-	// TODO: could a consumer thread could have freed the old tail?  no because that would leave head=NULL
+    int rc = begin_op(ctx);
+    if (rc < 0)
+        return rc;
 
-//	ATOMIC_ADD( &ctx->count, 1);
-	return 0;
+    struct lfq_node *node = (struct lfq_node *)calloc(1, sizeof(*node));
+    if (!node) {
+        end_op(ctx);
+        return -ENOMEM;
+    }
+
+    node->data = data;
+    node->retired_next = NULL;
+    atomic_store_node(&node->next, NULL);
+
+    /*
+     * Hold the producer epoch before loading tail.  Reclamation may proceed
+     * concurrently with producers that start later, but it must not free a
+     * node referenced by an already-running producer's stale local tail.
+     */
+    (void)lfq_atomic_fetch_add_int(&ctx->active_enqueues, 1);
+
+    for (;;) {
+        struct lfq_node *tail = atomic_load_node(&ctx->tail);
+        if (!tail) {
+            (void)lfq_atomic_fetch_add_int(&ctx->active_enqueues, -1);
+            free(node);
+            end_op(ctx);
+            return -EINVAL;
+        }
+
+        struct lfq_node *next = atomic_load_node(&tail->next);
+        if (tail != atomic_load_node(&ctx->tail))
+            continue;
+
+        if (!next) {
+            struct lfq_node *expected_next = NULL;
+            if (atomic_cas_node(&tail->next, &expected_next, node)) {
+                /*
+                 * The link CAS above is the enqueue linearization point.
+                 * Advancing tail is only an optimization; other threads help
+                 * if this producer is descheduled here.
+                 */
+                struct lfq_node *expected_tail = tail;
+                (void)atomic_cas_node(&ctx->tail, &expected_tail, node);
+                (void)lfq_atomic_fetch_add_int(&ctx->active_enqueues, -1);
+                end_op(ctx);
+                return 0;
+            }
+        } else {
+            struct lfq_node *expected_tail = tail;
+            (void)atomic_cas_node(&ctx->tail, &expected_tail, next);
+        }
+    }
 }
 
-void * lfq_dequeue_tid(struct lfq_ctx *ctx, int tid ) {
-	//int cn_runtimes = 0;
-	volatile struct lfq_node *old_head, *new_head;
-#if 1  // HP[tid] stuff is necessary for deallocation.  (but it's still not safe).
-	do {
-	retry:  // continue jumps to the bottom of the loop, and would attempt a CAS with uninitialized new_head
-		old_head = ctx->head;
-		ctx->HP[tid] = old_head;  // seq-cst store.  (better: use xchg instead of mov + mfence on x86)
-		mb();
+int lfq_try_dequeue_tid(struct lfq_ctx *ctx, int tid, void **out) {
+    if (!out || tid < 0)
+        return -EINVAL;
+    *out = NULL;
 
-		if (old_head != ctx->head)  // another thread freed it before seeing our HP[tid] store
-			goto retry;
-		new_head = old_head->next;   // FIXME: crash with old_head=NULL during deallocation (tid=5)?  (main thread=25486, this=25489)
-		if (new_head==0 /* || new_head != old_head->next*/ ){  // redoing the same load isn't useful
-			ctx->HP[tid] = 0;
-			return 0;  // never remove the last node
-		}
-#ifdef DEBUG
-		assert(new_head != (void*)-1 && "read an already-freed node");
-#endif
-	} while( ! CAS(&ctx->head, old_head, new_head) );
-#else  // without HP[] stuff
-	do {
-		old_head = ctx->head;
-		//ctx->HP[tid] = old_head;
-		new_head = old_head->next;
-		//if (old_head != ctx->head) continue;
-		if (!new_head) {
-			// ctx->HP[tid] = 0;
-			return 0;  // never remove the last node
-		}
-#ifdef DEBUG
-		assert(new_head != (void*)-1 && "read an already-freed node");
-#endif
-	} while( !CAS(&ctx->head, old_head, new_head) );
-#endif
-//	mb();  // CAS is already a memory barrier, at least on x86.
+    int rc = begin_op(ctx);
+    if (rc < 0)
+        return rc;
 
-	// we've atomically advanced head, and we're the thread that won the race to claim a node
-	// We return the data from the *new* head.
-	// The list starts off with a dummy node, so the current head is always a node that's already been read.
+    int acquired = acquire_tid(ctx, tid);
+    if (acquired < 0) {
+        end_op(ctx);
+        return acquired;
+    }
 
-	ctx->HP[tid] = 0;
-	void *ret = new_head->data;
-	new_head->can_free = true;
-//	ATOMIC_SUB( &ctx->count, 1 );
-
-	//old_head->next = (void*)-1;  // done in safe-free in the actual free() path.  poison the pointer to detect use-after-free
-
-	// we need to avoid freeing until other readers are definitely not going to load its ->next in the CAS loop
-	safe_free(ctx, (struct lfq_node *)old_head);
-
-	//free(old_head);
-	return ret;
+    rc = dequeue_reserved(ctx, acquired, out);
+    release_tid(ctx, acquired);
+    end_op(ctx);
+    return rc;
 }
 
-void * lfq_dequeue(struct lfq_ctx *ctx ) {
-	//return lfq_dequeue_tid(ctx, 0);  // TODO: let this inline even in the shared library
-// old version
-	int tid = alloc_tid(ctx);
-	if (tid==-1)
-		return (void *)-1; // To many thread race
+int lfq_try_dequeue(struct lfq_ctx *ctx, void **out) {
+    if (!out)
+        return -EINVAL;
+    *out = NULL;
 
-	void * ret = lfq_dequeue_tid(ctx, tid);
-	free_tid(ctx, tid);
-	return ret;
+    int rc = begin_op(ctx);
+    if (rc < 0)
+        return rc;
+
+    int tid = acquire_tid(ctx, -1);
+    if (tid < 0) {
+        end_op(ctx);
+        return tid;
+    }
+
+    rc = dequeue_reserved(ctx, tid, out);
+    release_tid(ctx, tid);
+    end_op(ctx);
+    return rc;
+}
+
+void *lfq_dequeue_tid(struct lfq_ctx *ctx, int tid) {
+    void *out = NULL;
+    int rc = lfq_try_dequeue_tid(ctx, tid, &out);
+    if (rc > 0)
+        return out;
+    if (rc == 0)
+        return NULL;
+    return LFQ_ERROR;
+}
+
+void *lfq_dequeue(struct lfq_ctx *ctx) {
+    void *out = NULL;
+    int rc = lfq_try_dequeue(ctx, &out);
+    if (rc > 0)
+        return out;
+    if (rc == 0)
+        return NULL;
+    return LFQ_ERROR;
 }
