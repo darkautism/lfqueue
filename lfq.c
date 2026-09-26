@@ -13,6 +13,23 @@ struct lfq_producer_hp {
     struct lfq_producer_hp *next;
 };
 
+#ifdef LFQ_TEST_HOOKS
+static lfq_test_hook_fn lfq_test_hook;
+static void *lfq_test_hook_arg;
+
+void lfq_test_set_hook(lfq_test_hook_fn hook, void *arg) {
+    lfq_test_hook = hook;
+    lfq_test_hook_arg = arg;
+}
+
+#define LFQ_TEST_FIRE(point, ctx, first, second) do { \
+    if (lfq_test_hook) \
+        lfq_test_hook((point), (ctx), (first), (second), lfq_test_hook_arg); \
+} while (0)
+#else
+#define LFQ_TEST_FIRE(point, ctx, first, second) ((void)0)
+#endif
+
 static struct lfq_node *atomic_load_node(struct lfq_node * volatile *ptr) {
     return (struct lfq_node *)lfq_atomic_load_ptr((void * volatile *)ptr);
 }
@@ -177,6 +194,8 @@ static void try_reclaim(struct lfq_ctx *ctx, bool force) {
         if (!list)
             break;
 
+        LFQ_TEST_FIRE(LFQ_TEST_RECLAIM_AFTER_DETACH, ctx, list, NULL);
+
         int freed = 0;
         while (list) {
             struct lfq_node *next = list->retired_next;
@@ -198,6 +217,13 @@ static void try_reclaim(struct lfq_ctx *ctx, bool force) {
 
     lfq_atomic_store_int(&ctx->reclaiming, 0);
 }
+
+#ifdef LFQ_TEST_HOOKS
+void lfq_test_force_reclaim(struct lfq_ctx *ctx) {
+    if (ctx)
+        try_reclaim(ctx, true);
+}
+#endif
 
 static int acquire_tid(struct lfq_ctx *ctx, int requested_tid) {
     if (requested_tid >= 0) {
@@ -233,6 +259,8 @@ static int dequeue_reserved(struct lfq_ctx *ctx, int tid, void **out) {
         if (head != atomic_load_node(&ctx->head))
             continue;
 
+        LFQ_TEST_FIRE(LFQ_TEST_DEQ_AFTER_PROTECT_HEAD, ctx, head, NULL);
+
         struct lfq_node *tail = atomic_load_node(&ctx->tail);
         struct lfq_node *next = atomic_load_node(&head->next);
 
@@ -250,6 +278,8 @@ static int dequeue_reserved(struct lfq_ctx *ctx, int tid, void **out) {
             continue;
         }
 
+        LFQ_TEST_FIRE(LFQ_TEST_DEQ_AFTER_PROTECT_NEXT, ctx, head, next);
+
         if (head == tail) {
             struct lfq_node *expected_tail = tail;
             (void)atomic_cas_node(&ctx->tail, &expected_tail, next);
@@ -263,6 +293,8 @@ static int dequeue_reserved(struct lfq_ctx *ctx, int tid, void **out) {
             hp_clear_pair(ctx, tid);
             continue;
         }
+
+        LFQ_TEST_FIRE(LFQ_TEST_DEQ_AFTER_HEAD_CAS, ctx, head, next);
 
         /*
          * Keep our hazards published while putting the removed dummy on the
@@ -334,6 +366,8 @@ int lfq_clean(struct lfq_ctx *ctx) {
     int expected = 0;
     if (!lfq_atomic_cas_int(&ctx->op_state, &expected, LFQ_OP_CLOSING))
         return -EBUSY;
+
+    LFQ_TEST_FIRE(LFQ_TEST_CLEAN_AFTER_GATE, ctx, atomic_load_node(&ctx->head), NULL);
 
     if (!ctx->HP && !ctx->tid_map && !atomic_load_node(&ctx->head)) {
         memset(ctx, 0, sizeof(*ctx));
@@ -416,6 +450,8 @@ int lfq_enqueue(struct lfq_ctx *ctx, void *data) {
         if (tail != atomic_load_node(&ctx->tail))
             continue;
 
+        LFQ_TEST_FIRE(LFQ_TEST_ENQ_AFTER_PROTECT_TAIL, ctx, tail, node);
+
         struct lfq_node *next = atomic_load_node(&tail->next);
         if (tail != atomic_load_node(&ctx->tail))
             continue;
@@ -423,6 +459,8 @@ int lfq_enqueue(struct lfq_ctx *ctx, void *data) {
         if (!next) {
             struct lfq_node *expected_next = NULL;
             if (atomic_cas_node(&tail->next, &expected_next, node)) {
+                LFQ_TEST_FIRE(LFQ_TEST_ENQ_AFTER_LINK, ctx, tail, node);
+
                 /*
                  * The link CAS above is the enqueue linearization point.
                  * Advancing tail is only an optimization; other threads help

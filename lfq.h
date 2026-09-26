@@ -34,6 +34,27 @@ struct lfq_ctx {
     lfq_atomic_int_t op_state;
 };
 
+#ifdef LFQ_TEST_HOOKS
+enum lfq_test_hook_point {
+    LFQ_TEST_ENQ_AFTER_PROTECT_TAIL = 1,
+    LFQ_TEST_ENQ_AFTER_LINK,
+    LFQ_TEST_DEQ_AFTER_PROTECT_HEAD,
+    LFQ_TEST_DEQ_AFTER_PROTECT_NEXT,
+    LFQ_TEST_DEQ_AFTER_HEAD_CAS,
+    LFQ_TEST_RECLAIM_AFTER_DETACH,
+    LFQ_TEST_CLEAN_AFTER_GATE
+};
+
+typedef void (*lfq_test_hook_fn)(enum lfq_test_hook_point point,
+                                 struct lfq_ctx *ctx,
+                                 struct lfq_node *first,
+                                 struct lfq_node *second,
+                                 void *arg);
+
+void lfq_test_set_hook(lfq_test_hook_fn hook, void *arg);
+void lfq_test_force_reclaim(struct lfq_ctx *ctx);
+#endif
+
 int lfq_init(struct lfq_ctx *ctx, int max_consume_thread);
 int lfq_clean(struct lfq_ctx *ctx);
 

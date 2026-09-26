@@ -10,6 +10,9 @@
 
 #if !defined(_MSC_VER)
 #include <pthread.h>
+#if defined(__linux__)
+#include <sched.h>
+#endif
 #endif
 
 #ifndef MAX_PRODUCER
@@ -40,8 +43,58 @@ struct user_data {
     uint32_t sequence;
 };
 
+#if defined(__linux__) && defined(LFQ_AFFINITY_MODE)
+static int affinity_cpu_for_role(int consumer) {
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0)
+        return -1;
+
+    int first = -1;
+    int second = -1;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+        if (!CPU_ISSET(cpu, &allowed))
+            continue;
+        if (first < 0)
+            first = cpu;
+        else {
+            second = cpu;
+            break;
+        }
+    }
+
+    if (first < 0)
+        return -1;
+
+#if LFQ_AFFINITY_MODE == 2
+    if (consumer && second >= 0)
+        return second;
+#endif
+    return first;
+}
+
+static void pin_current_for_role(int consumer) {
+    int cpu = affinity_cpu_for_role(consumer);
+    if (cpu < 0) {
+        ATOMIC_ADD(&errors, 1);
+        return;
+    }
+
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(cpu, &set);
+    if (pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0)
+        ATOMIC_ADD(&errors, 1);
+}
+#else
+static void pin_current_for_role(int consumer) {
+    (void)consumer;
+}
+#endif
+
 THREAD_FN addq(void *data) {
     struct lfq_ctx *ctx = (struct lfq_ctx *)data;
+    pin_current_for_role(0);
     uint32_t producer = (uint32_t)(ATOMIC_ADD(&producer_id_next, 1) - 1);
     uint64_t local_added = 0;
     uint64_t local_sum = 0;
@@ -77,6 +130,7 @@ THREAD_FN addq(void *data) {
 
 THREAD_FN delq(void *data) {
     struct lfq_ctx *ctx = (struct lfq_ctx *)data;
+    pin_current_for_role(1);
     int tid = ATOMIC_ADD(&consumer_tid_next, 1) - 1;
     uint64_t local_deleted = 0;
     uint64_t local_sum = 0;
@@ -118,6 +172,10 @@ THREAD_FN delq(void *data) {
 }
 
 int main(void) {
+#if defined(__linux__) && defined(LFQ_AFFINITY_MODE)
+    printf("affinity stress mode=%d (1=same CPU, 2=producer/consumer split)\n",
+           LFQ_AFFINITY_MODE);
+#endif
     struct lfq_ctx ctx;
     if (lfq_init(&ctx, MAX_CONSUMER) != 0) {
         fprintf(stderr, "lfq_init failed\n");
