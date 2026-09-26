@@ -57,3 +57,6 @@ jobs:
           bin\test_edge_cases.exe
           bin\test_multithread.exe
           bin\test_aba.exe
+      - name: Build Visual Studio solution
+        shell: cmd
+        run: msbuild "Visual Stdio\lfqueue.sln" /m /p:Configuration=Release /p:Platform=x64
