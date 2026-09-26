@@ -2,9 +2,9 @@ name: C/C++ CI
 
 on:
   push:
-    branches: [ "HP" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "HP" ]
+    branches: [ "main" ]
 
 permissions:
   contents: read

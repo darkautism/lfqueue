@@ -1,6 +1,6 @@
 # lfqueue
 
-[![C/C++ CI](https://github.com/darkautism/lfqueue/actions/workflows/ci.yml/badge.svg?branch=HP)](https://github.com/darkautism/lfqueue/actions/workflows/ci.yml)
+[![C/C++ CI](https://github.com/darkautism/lfqueue/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/darkautism/lfqueue/actions/workflows/ci.yml)
 
 A small multi-producer / multi-consumer lock-free queue written in C.
 
