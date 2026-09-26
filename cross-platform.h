@@ -52,7 +52,10 @@
 	#define lmb() asm volatile("":::"memory")   // compiler barrier only.  runtime reordering already impossible on x86
 	#define smb() asm volatile("":::"memory")
        // "mfence" for lmb and smb makes assertion failures rarer, but doesn't eliminate, so it's just papering over the symptoms
-#endif // else no definition
+#else
+	#define lmb() mb()
+	#define smb() mb()
+#endif
 
 	// thread
 	#include <pthread.h>
