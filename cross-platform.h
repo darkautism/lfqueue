@@ -1,102 +1,145 @@
 #ifndef __CROSS_PLATFORM_H__
 #define __CROSS_PLATFORM_H__
-// bool define
+
 #ifdef __KERNEL__
-	#include <sys/stdbool.h>
+#include <sys/stdbool.h>
+#include <linux/types.h>
+#define malloc(x) kmalloc((x), GFP_KERNEL)
+#define free kfree
+#define calloc(x,y) kmalloc((x) * (y), GFP_KERNEL | __GFP_ZERO)
+#include <linux/string.h>
+typedef int lfq_atomic_int_t;
 #else
-	#include <stdbool.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 #endif
 
-// malloc free
-#ifdef __KERNEL__
-	#define malloc(x) kmalloc(x, GFP_KERNEL )
-	#define free kfree
-	#define calloc(x,y) kmalloc(x*y, GFP_KERNEL | __GFP_ZERO )
-	#include<linux/string.h>
-#else
-	#include <stdlib.h>
-	#include <string.h>
-#endif
+#if defined(_MSC_VER)
 
+#include <Windows.h>
+typedef volatile LONG lfq_atomic_int_t;
 
-#ifndef asm
-	#define asm __asm
-#endif
-
-#define cmpxchg( ptr, _old, _new ) {						\
-  volatile uint32_t *__ptr = (volatile uint32_t *)(ptr);	\
-  uint32_t __ret;                                   		\
-  asm volatile( "lock; cmpxchgl %2,%1"          			\
-    : "=a" (__ret), "+m" (*__ptr)               			\
-    : "r" (_new), "0" (_old)                    			\
-    : "memory");                							\
-  );                                            			\
-  __ret;                                        			\
+static __forceinline void *lfq_atomic_load_ptr(void * volatile *ptr) {
+    return InterlockedCompareExchangePointer((PVOID volatile *)ptr, NULL, NULL);
 }
 
-//#define CAS cmpxchg
-#define ATOMIC_SET __sync_lock_test_and_set
-#define ATOMIC_RELEASE __sync_lock_release
+static __forceinline void lfq_atomic_store_ptr(void * volatile *ptr, void *value) {
+    (void)InterlockedExchangePointer((PVOID volatile *)ptr, value);
+}
 
-#if defined __GNUC__
-	#define ATOMIC_SUB __sync_sub_and_fetch
-	#define ATOMIC_SUB64 ATOMIC_SUB
-	#define CAS __sync_bool_compare_and_swap
-#define XCHG __sync_lock_test_and_set   // yes really.  The 2nd arg is limited to 1 on machines with TAS but not XCHG.  On x86 it's an arbitrary value
-	#define ATOMIC_ADD __sync_add_and_fetch
-	#define ATOMIC_ADD64 ATOMIC_ADD
-	#define mb __sync_synchronize
-#if  defined(__x86_64__) || defined(__i386)
-//	#define lmb() asm volatile( "lfence" )
-//	#define smb() asm volatile( "sfence" )
-	#define lmb() asm volatile("":::"memory")   // compiler barrier only.  runtime reordering already impossible on x86
-	#define smb() asm volatile("":::"memory")
-       // "mfence" for lmb and smb makes assertion failures rarer, but doesn't eliminate, so it's just papering over the symptoms
+static __forceinline void *lfq_atomic_exchange_ptr(void * volatile *ptr, void *value) {
+    return InterlockedExchangePointer((PVOID volatile *)ptr, value);
+}
+
+static __forceinline bool lfq_atomic_cas_ptr(void * volatile *ptr, void **expected, void *desired) {
+    void *actual = InterlockedCompareExchangePointer((PVOID volatile *)ptr, desired, *expected);
+    if (actual == *expected)
+        return true;
+    *expected = actual;
+    return false;
+}
+
+static __forceinline int lfq_atomic_load_int(lfq_atomic_int_t *ptr) {
+    return (int)InterlockedCompareExchange((volatile LONG *)ptr, 0, 0);
+}
+
+static __forceinline void lfq_atomic_store_int(lfq_atomic_int_t *ptr, int value) {
+    (void)InterlockedExchange((volatile LONG *)ptr, (LONG)value);
+}
+
+static __forceinline bool lfq_atomic_cas_int(lfq_atomic_int_t *ptr, int *expected, int desired) {
+    LONG actual = InterlockedCompareExchange((volatile LONG *)ptr, (LONG)desired, (LONG)*expected);
+    if (actual == (LONG)*expected)
+        return true;
+    *expected = (int)actual;
+    return false;
+}
+
+static __forceinline int lfq_atomic_fetch_add_int(lfq_atomic_int_t *ptr, int value) {
+    return (int)InterlockedExchangeAdd((volatile LONG *)ptr, (LONG)value);
+}
+
+#define LFQ_ALIGNAS(n) __declspec(align(n))
+#define mb() MemoryBarrier()
+#define lmb() MemoryBarrier()
+#define smb() MemoryBarrier()
+
+#define ATOMIC_ADD(ptr, value) (InterlockedAdd((volatile LONG *)(ptr), (LONG)(value)))
+#define ATOMIC_SUB(ptr, value) (InterlockedAdd((volatile LONG *)(ptr), -(LONG)(value)))
+#define ATOMIC_ADD64(ptr, value) (InterlockedAdd64((volatile LONG64 *)(ptr), (LONG64)(value)))
+#define ATOMIC_SUB64(ptr, value) (InterlockedAdd64((volatile LONG64 *)(ptr), -(LONG64)(value)))
+
+static __forceinline void lfq_thread_wait(HANDLE handle) {
+    if (handle) {
+        WaitForSingleObject(handle, INFINITE);
+        CloseHandle(handle);
+    }
+}
+
+#define THREAD_WAIT(x) lfq_thread_wait(x)
+#define THREAD_ID() GetCurrentThreadId()
+#define THREAD_FN DWORD WINAPI
+#define THREAD_YIELD() SwitchToThread()
+#define THREAD_TOKEN HANDLE
+
 #else
-	#define lmb() mb()
-	#define smb() mb()
+
+#include <pthread.h>
+#include <sched.h>
+typedef volatile int lfq_atomic_int_t;
+
+static inline void *lfq_atomic_load_ptr(void * volatile *ptr) {
+    return __atomic_load_n(ptr, __ATOMIC_SEQ_CST);
+}
+
+static inline void lfq_atomic_store_ptr(void * volatile *ptr, void *value) {
+    __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
+}
+
+static inline void *lfq_atomic_exchange_ptr(void * volatile *ptr, void *value) {
+    return __atomic_exchange_n(ptr, value, __ATOMIC_SEQ_CST);
+}
+
+static inline bool lfq_atomic_cas_ptr(void * volatile *ptr, void **expected, void *desired) {
+    return __atomic_compare_exchange_n(ptr, expected, desired, false,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+static inline int lfq_atomic_load_int(lfq_atomic_int_t *ptr) {
+    return __atomic_load_n(ptr, __ATOMIC_SEQ_CST);
+}
+
+static inline void lfq_atomic_store_int(lfq_atomic_int_t *ptr, int value) {
+    __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
+}
+
+static inline bool lfq_atomic_cas_int(lfq_atomic_int_t *ptr, int *expected, int desired) {
+    return __atomic_compare_exchange_n(ptr, expected, desired, false,
+                                       __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+static inline int lfq_atomic_fetch_add_int(lfq_atomic_int_t *ptr, int value) {
+    return __atomic_fetch_add(ptr, value, __ATOMIC_SEQ_CST);
+}
+
+#define LFQ_ALIGNAS(n) __attribute__((aligned(n)))
+#define mb() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+#define lmb() __atomic_thread_fence(__ATOMIC_ACQUIRE)
+#define smb() __atomic_thread_fence(__ATOMIC_RELEASE)
+
+#define ATOMIC_ADD(ptr, value) __sync_add_and_fetch((ptr), (value))
+#define ATOMIC_SUB(ptr, value) __sync_sub_and_fetch((ptr), (value))
+#define ATOMIC_ADD64(ptr, value) __sync_add_and_fetch((ptr), (value))
+#define ATOMIC_SUB64(ptr, value) __sync_sub_and_fetch((ptr), (value))
+
+#define THREAD_WAIT(x) pthread_join((x), NULL)
+#define THREAD_ID() ((unsigned long)pthread_self())
+#define THREAD_FN void *
+#define THREAD_YIELD() sched_yield()
+#define THREAD_TOKEN pthread_t
+
 #endif
 
-	// thread
-	#include <pthread.h>
-	#include <sched.h>
-	#define THREAD_WAIT(x) pthread_join(x, NULL);
-	#define THREAD_ID pthread_self
-	#define THREAD_FN void *
-	#define THREAD_YIELD sched_yield
-	#define THREAD_TOKEN pthread_t
-
-#else
-	#include <Windows.h>	
-	#define ATOMIC_SUB(x,y) InterlockedExchangeAddNoFence(x, -y)
-	#define ATOMIC_SUB64(x,y) InterlockedExchangeAddNoFence64(x, -y)
-	#define ATOMIC_ADD InterlockedExchangeAddNoFence
-	#define ATOMIC_ADD64 InterlockedExchangeAddNoFence64
-	#ifdef _WIN64
-		#define mb() MemoryBarrier()
-		#define lmb() LoadFence()
-		#define smb() StoreFence()
-		inline bool __CAS(LONG64 volatile *x, LONG64 y, LONG64 z) {
-			return InterlockedCompareExchangeNoFence64(x, z, y) == y;
-		}
-		#define CAS(x,y,z)  __CAS((LONG64 volatile *)x, (LONG64)y, (LONG64)z)
-	#else
-		#define mb() asm mfence
-		#define lmb() asm lfence
-		#define smb() asm sfence
-		inline bool __CAS(LONG volatile *x, LONG y, LONG z) {
-			return InterlockedCompareExchangeNoFence(x, z, y) == y;
-		}
-		#define CAS(x,y,z)  __CAS((LONG volatile *)x, (LONG)y, (LONG)z)
-	#endif
-
-	// thread
-	#include <windows.h>
-	#define THREAD_WAIT(x) WaitForSingleObject(x, INFINITE);
-	#define THREAD_ID GetCurrentThreadId
-	#define THREAD_FN WORD WINAPI
-	#define THREAD_YIELD SwitchToThread
-	#define THREAD_TOKEN HANDLE
 #endif
-#endif
-

@@ -1,204 +1,172 @@
-# lfqueue [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)
+# lfqueue
 
-Minimize lock-free queue, it's easy to use and easy to read. It's only 150 line code so it is easy to understand, best code for education ever!
+[![C/C++ CI](https://github.com/darkautism/lfqueue/actions/workflows/ci.yml/badge.svg?branch=HP)](https://github.com/darkautism/lfqueue/actions/workflows/ci.yml)
 
-***Do not use these code in production***
+A small multi-producer / multi-consumer lock-free queue written in C.
 
-Support multiple comsumer and multiple producer at sametime.
+The default branch is the Hazard Pointer implementation.  The code is intentionally
+kept compact enough to study, but concurrent memory reclamation is subtle: run the
+sanitizer tests before using changes in real systems.
 
-| Arch              | Build status | Test         |
-| ----------------- | ------------ | ------------ |
-| Linux             | [![Build Status](https://travis-ci.org/darkautism/lfqueue.svg?branch=HP)](https://travis-ci.org/darkautism/lfqueue)| On testing |
-| Windows(msbuild)  | [![Build status](https://ci.appveyor.com/api/projects/status/yu04l5atf0j259kd?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-2puqk) | Not tested [Issue](#free-memory-very-slow-in-visual-studio) |
-| Windows(Mingw)    | [![Build status](https://ci.appveyor.com/api/projects/status/4nng8ye801ycyvgn/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue/branch/HP) | Not tested |
-| Windows(MinGW64)  | [![Build status](https://ci.appveyor.com/api/projects/status/4457r35yh2x4f52d/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-4jybw/branch/HP) | Not tested |
-| Windows(Cygwin)   | [![Build status](https://ci.appveyor.com/api/projects/status/xb9oww8jtbaxa9so/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-7hmwx/branch/HP) | Not tested |
-| Windows(Cygwin64) | [![Build status](https://ci.appveyor.com/api/projects/status/qjltyv4j963s86xd/branch/HP?svg=true)](https://ci.appveyor.com/project/darkautism/lfqueue-wepul/branch/HP) | Not tested |
+## Current design
 
-## Build Guide
+The queue uses the Michael-Scott linked-queue protocol:
 
-In any gnu toolchain, just type `make`.
+- enqueue linearizes when it CAS-links the new node into `tail->next`;
+- lagging `tail` pointers are helped forward by producers and consumers;
+- dequeue protects both the current dummy head and its successor with two Hazard
+  Pointers before dereferencing them;
+- each producer acquires a dynamically-grown Hazard Pointer record before
+  dereferencing a local tail, so a stale producer tail cannot be reclaimed;
+- removed dummy nodes go to a separate retired list.  The retired-list link is
+  **not** overlaid on the queue's `next` field, so a hazard-protected node remains
+  immutable until no reader can reference it;
+- all shared queue pointers, hazard slots, thread-slot ownership, and lifecycle
+  state are accessed through full atomic operations on GCC/Clang and MSVC.
 
-In any visual studio build toolchain, just type `msbuild "Visual Stdio\lfqueue.sln" /verbosity:minimal /property:Configuration=Release /property:Platform=x86` or 64bit version `msbuild "Visual Stdio\lfqueue.sln" /verbosity:minimal /property:Configuration=Release /property:Platform=x64`.
+`lfq_clean()` uses an atomic lifecycle gate.  It succeeds only while no queue
+operation is active; once cleanup starts, new operations fail with `-EBUSY`
+instead of racing with reclamation.
 
+## Build and test
 
-## How to use
+GNU/Clang:
 
-Just copy past everywhere and use it. If you copy these code into your project.
-
-## Next Milestone
-
-- Compile on MACOS ( **I do not have MAC, need somebody help!!** )
-- Compile in kernel module.
-- Use lock-free memory manager. (free is very slow in windows)
-
-## Example
-
-### Sample example
-
-It is an minimize sample code for how to using lfq.
-
-**Even if int or long value is valid input data, but you will hard to distinguish empty queue or other error message.**
-
-**We not suggestion use int or long as queue data type**
-
-``` c
-#include <stdio.h>
-#include <stdlib.h>
-#include "lfq.h"
-
-int main() {
-	long ret;
-	struct lfq_ctx ctx;
-	lfq_init(&ctx, 0);
-	lfq_enqueue(&ctx,(void *)1);
-	lfq_enqueue(&ctx,(void *)3);
-	lfq_enqueue(&ctx,(void *)5);
-	lfq_enqueue(&ctx,(void *)8);
-	lfq_enqueue(&ctx,(void *)4);
-	lfq_enqueue(&ctx,(void *)6);
-
-	while ( (ret = (long)lfq_dequeue(&ctx)) != 0 )
-		printf("lfq_dequeue %ld\n", ret);
-
-	lfq_clean(&ctx);
-	return 0;
-}
+```sh
+make
+make test
+make test-sanitize
+make test-tsan
 ```
 
-### Advance example
+CI runs GCC, Clang, AddressSanitizer + UndefinedBehaviorSanitizer,
+ThreadSanitizer, and MSVC tests.
 
-If you want to get best performance with the cost of developing speed, you can control thread_id yourself.
+Visual Studio projects are also included under `Visual Stdio/`.
 
-**This API only impilement on HP branch**
+## Basic example
 
-``` c
+```c
+#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include "lfq.h"
 
-#define MAX_CONSUMER_THREAD 4
+int main(void) {
+    struct lfq_ctx ctx;
 
-int main() {
-	long ret;
-	struct lfq_ctx ctx;
-	lfq_init(&ctx, MAX_CONSUMER_THREAD);
-	lfq_enqueue(&ctx,(void *)1);
-	
-	// The second number is thread id, this thread id should unique between threads.
-	// And this tid must less than MAX_CONSUMER_THREAD
-	// In this sample code, this tid must 0, 1, 2, 3.
-	ret = (long)lfq_dequeue_tid(&ctx, 1);
+    if (lfq_init(&ctx, 0) != 0)
+        return 1;                       /* 0 => default 16 consumer slots */
 
-	lfq_clean(&ctx);
-	return 0;
+    lfq_enqueue(&ctx, (void *)(uintptr_t)1);
+    lfq_enqueue(&ctx, (void *)(uintptr_t)2);
+
+    for (;;) {
+        void *p = lfq_dequeue(&ctx);
+        if (p == NULL)
+            break;                      /* empty */
+        if (p == LFQ_ERROR)
+            return 1;                   /* errno-style failure */
+        printf("%lu\n", (unsigned long)(uintptr_t)p);
+    }
+
+    return lfq_clean(&ctx) == 0 ? 0 : 1;
 }
 ```
 
 ## API
 
-### lfq_init(struct lfq_ctx *ctx, int max_consume_thread)
+### `lfq_init(ctx, max_consume_thread)`
 
-Init lock-free queue.
+Initializes a fresh context.  Passing `0` selects
+`LFQ_DEFAULT_MAX_CONSUMERS` (16).  A negative value is rejected.
 
-**Arguments:**
-- **ctx** : Lock-free queue handler.
-- **max_consume_thread** : Max consume thread numbers. If this value set to zero, use default value (16).
+The caller must not call `lfq_init()` on a live queue; clean it first.
 
-**Return:** The lfq_init() functions return zero on success. On error, this functions return negative errno.
+### `lfq_enqueue(ctx, data)`
 
+Enqueues one payload pointer.
 
-### lfq_clean(struct lfq_ctx *ctx)
+`NULL` and `LFQ_ERROR` are rejected with `-EINVAL` because the legacy
+pointer-returning dequeue API reserves those values for empty/error results.
 
-Clean lock-free queue from ctx.
+### `lfq_try_dequeue(ctx, &out)`
 
-**Arguments:**
-- **ctx** : Lock-free queue handler.
+Recommended dequeue API:
 
-**Return:** The lfq_clean() functions return zero on success. On error, this functions return -1.
+- `1`: item returned in `out`
+- `0`: queue empty
+- negative value: errno-style error
 
+### `lfq_try_dequeue_tid(ctx, tid, &out)`
 
-### lfq_enqueue(struct lfq_ctx *ctx, void * data)
+Same operation with an explicit consumer slot.  `tid` must be in
+`[0, max_consume_thread)`.
 
-Push data into queue.
+The implementation reserves the slot atomically for each call, so manual and
+automatic dequeue APIs cannot silently use the same Hazard Pointer slots at the
+same time.  Concurrent calls using the same explicit `tid` return `-EBUSY`.
 
-**Arguments:**
-- **ctx** : Lock-free queue handler.
-- **data** : User data.
+### `lfq_dequeue()` / `lfq_dequeue_tid()`
 
-**Return:** The lfq_clean() functions return zero on success. On error, this functions return negative errno.
+Compatibility wrappers:
 
+- payload pointer on success
+- `NULL` when empty
+- `LFQ_ERROR` on error
 
-### lfq_dequeue(struct lfq_ctx *ctx)
+Prefer the status-returning APIs in new code.
 
-Pop data from queue.
+### `lfq_clean(ctx)`
 
-**Arguments:**
-- **ctx** : Lock-free queue handler.
+Reclaims queue nodes and retired nodes.  User payloads are never freed by the
+queue.
 
-**Return:** The lfq_clean() functions return zero if empty queue. Return positive pointer.  On error, this functions return negative errno.
+Cleanup may be attempted concurrently, but it returns `-EBUSY` if an operation
+is already active.  Once cleanup wins the lifecycle gate, new operations are
+blocked until cleanup finishes.
 
-### lfq_dequeue_tid(struct lfq_ctx *ctx, int tid)
+## Correctness notes
 
-Pop data from queue.
+Older revisions had several important races:
 
-**Arguments:**
-- **ctx** : Lock-free queue handler.
-- **tid** : Unique thread id.
+- enqueue published `tail` before linking `old_tail->next`, allowing a
+  completed enqueue to remain invisible to consumers;
+- the retired-list pointer shared a union with the queue `next` pointer, so a
+  node could be modified while another consumer still hazard-protected it;
+- Hazard Pointer slots were plain `volatile` loads/stores rather than atomic
+  accesses;
+- Win64 used an 8-byte CAS on 32-bit `int` fields;
+- `lfq_init(ctx, 0)` contradicted the documented default and produced zero
+  consumer slots;
+- cleanup could leave non-empty queues partially unreclaimed.
 
-**Return:** The lfq_dequeue_tid() functions return zero if empty queue. Return positive pointer.  On error, this functions return negative errno.
+The current implementation removes those mechanisms instead of adding more
+fences around them.
 
-## Issues
+## Tests
 
-### ENOMEM
+`test_edge_cases.c`
+covers API errors, default initialization, FIFO behavior, slot conflicts,
+cleanup of non-empty queues, and post-clean behavior.
 
-This lfqueue do not have size limit, so count your struct yourself.
+`test_multithread.c`
+runs MPMC producer/consumer matrices and verifies both item count and a
+cross-thread checksum.  Dedicated affinity builds also force all producers and
+consumers onto one CPU (heavy preemption/time-slicing) and split producers vs.
+consumers across two CPUs (cache-line migration / SMP ordering pressure).
 
-### Can i iterate lfqueue inner struct?
+`test_scheduler.c`
+uses test-only hook points plus condition variables to force exact interleavings.
+All deterministic actors are pinned to the same allowed CPU so the test parks a
+thread at a known lock-free algorithm step and lets another thread run on that
+same CPU.  Regression cases cover completed-enqueue visibility, consumer hazard
+protection during forced reclamation, stale producer tails, cleanup racing with
+an active operation, and the cleanup lifecycle gate.  These tests do not rely on
+`sched_yield()` luck.
 
-No, iterate inner struct is not threadsafe.
-
-If you do not get segmentation fault because you are iterate lfqueue in single thread.
-
-We should always iterate lfqueue by `lfq_enqueue` and `lfq_dequeue` method.
-
-### CPU time slice waste? Other thread blocking and waiting for swap?
-
-**Enqueue**
-
-No, CAS operator not lock. Loser not block and wait winner.
-
-If a thread race win a CAS, other thread will get false and try to retrive next pointer. Because winner already swap tail, so other losers can do next race.
-
-**Example:**
-```
-4 thread race push
-1 win Push A, 2 lose, 1 do not have CPU time slice
-1 win go out queue, 2 losers race A as tail, 1 race initnode as tail
-1 win go out queue, 1 win push B, 1 lose, 1 race A failed because tail not initnode now
-```
-
-So lock-free queue have better performance then lock queue.
-
-**Dequeue**
-
-We choice Hazard Pointers to reaolve ABA problems. So dequeue is fast as enqueue.
-
-There has many papers to resolve this problem:
-
-- Lock-Free Reference Counting
-- ABA-Prevention Tags
-- [Hazard Pointers](https://github.com/darkautism/lfqueue/tree/HP) **Beta**
-	- [Algorithm Paper](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.395.378&rep=rep1&type=pdf)
-- [Fucking stupid head wait](https://github.com/darkautism/lfqueue/tree/FSHW) **Stable**
-
-### Free memory very slow in Visual studio
-
-Sorry, i have no idea why. Still finding problems in windows.
-
-## Contributions
-
-[pcordes](https://github.com/pcordes)
+`test_aba.c`
+stresses rapid node retirement/reuse.  It is paired with sanitizer CI; a passing
+stress test by itself is not a formal proof of linearizability.
 
 ## License
 
